@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.pytest_cache/
+.mypy_cache/
+.coverage
+*.egg-info/
+
+# Audio outputs / large media
+*.wav
+!examples/fixtures/*.wav
+*.wave
+*.mp3
+*.aiff
+*.aif
+*.flac
+*.m4a
+*.aac
+# Generated reports and local manifests (keep shipped examples)
+*.json
+!examples/*.json
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+.flowmix_demucs_cache/
+output/
