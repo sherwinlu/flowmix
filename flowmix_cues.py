@@ -31,10 +31,10 @@ Helpful optional columns:
 
 Example tracks.csv:
     path,title,bpm,key,visual_mood
-    audio/01_Move_Anyway.wav,Move Anyway,110,E major / 12B,pre-dawn warm-up ignition
-    audio/02_Between_the_Beats.mp3,Between the Beats,126,E major / 12B,sunrise piano-house tunnel
+    audio/demo_track_01.wav,Demo Track 01,110,E major / 12B,warm-up
+    audio/demo_track_02.mp3,Demo Track 02,126,E major / 12B,build
 
-Supported audio inputs: `.wav`, `.wave`, and `.mp3` (same as FlowMix mix rendering).
+Supported audio inputs: `.wav`, `.wave`, and `.mp3` (file formats only — use masters you have rights to).
 
 Timeline CSV optional columns. The script tries several common names:
     title
@@ -707,7 +707,7 @@ def main() -> None:
     print("Review tips:")
     print("- Treat main_peak as the first place to check for the drop/chorus.")
     print("- If a cue is off, move it by ear in your editor.")
-    print("- For LTX, useful audio_start values are usually main_peak_final_sec - 4 to main_peak_final_sec.")
+    print("- For video editors, useful audio_start values are usually main_peak_final_sec - 4 to main_peak_final_sec.")
     print("- Use transition_out_timestamp for visual crossfades between track worlds.")
 
 

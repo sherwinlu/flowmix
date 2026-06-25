@@ -34,7 +34,13 @@ python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 ```
 
-Run a demo setlist mix (bundled fixtures under `examples/fixtures/` are WAV; MP3 paths work the same way):
+Generate synthetic demo audio (not checked into git):
+
+```bash
+python examples/generate_fixtures.py
+```
+
+Run a demo setlist mix (uses generated fixtures under `examples/fixtures/`):
 
 ```bash
 python flowmix_setlist.py examples/setlist_example.json \
@@ -648,7 +654,7 @@ flowmix/
 
   configs/
   examples/
-    fixtures/              # small demo WAVs for setlist_example.json (MP3 also supported)
+    fixtures/              # generated synthetic demo WAVs (see fixtures/README.md)
   tests/
 ```
 
