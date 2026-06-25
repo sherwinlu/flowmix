@@ -44,7 +44,7 @@ class TwoTrackMixPlan:
     seg_a: AudioSegment
     seg_b: AudioSegment
     candidates: List[TransitionCandidate]
-    ranked: List[Dict]
+    ranked: list[dict[str, object]]
     recommended_name: Optional[str]
     scoring_profile: Optional[ScoringProfile]
     effective_search_a_sec: float
@@ -61,7 +61,7 @@ class JunctionPlan:
     track_a_analysis: AudioAnalysis
     track_b_analysis: AudioAnalysis
     candidates: List[TransitionCandidate]
-    ranked: List[Dict]
+    ranked: list[dict[str, object]]
     selected: TransitionCandidate
     override_mode: Optional[str] = None
     mix_transition_start_sec: float = 0.0
@@ -79,7 +79,7 @@ class SetlistMixPlan:
     effective_search_a_sec: float = 35.0
     effective_search_b_sec: float = 35.0
     source_zero_in_mix_sec: List[float] = field(default_factory=list)
-    manifest_settings: Dict = field(default_factory=dict)
+    manifest_settings: dict[str, object] = field(default_factory=dict)
     segments: List[AudioSegment] = field(default_factory=list)
 
 
@@ -124,7 +124,7 @@ def select_candidate(candidates: List[TransitionCandidate], mode: str, transitio
     return fallback
 
 
-def transition_override(settings: Dict, index: int, from_title: str, to_title: str) -> Optional[Dict]:
+def transition_override(settings: dict[str, object], index: int, from_title: str, to_title: str) -> dict[str, object] | None:
     """Return a per-transition override object from manifest settings, if present."""
     overrides = settings.get("transition_overrides") or []
     if not isinstance(overrides, list):
@@ -139,10 +139,12 @@ def transition_override(settings: Dict, index: int, from_title: str, to_title: s
     return None
 
 
-def coerce_float_override(item: Dict, key: str, fallback: float) -> float:
+def coerce_float_override(item: dict[str, object], key: str, fallback: float) -> float:
     value = item.get(key)
     if value is None:
         return fallback
+    if not isinstance(value, (int, float, str)):
+        raise ValueError(f"Invalid manual transition override value for {key}: {value!r}")
     try:
         return float(value)
     except (TypeError, ValueError) as exc:
@@ -151,7 +153,7 @@ def coerce_float_override(item: Dict, key: str, fallback: float) -> float:
 
 def apply_manual_transition_override(
     base: TransitionCandidate,
-    item: Dict,
+    item: dict[str, object],
     transition_index: int,
     track_a: AudioAnalysis,
     track_b: AudioAnalysis,
@@ -173,8 +175,9 @@ def apply_manual_transition_override(
 
     rescored = score_candidate(track_a, track_b, a_cut, b_cue, overlap, "candidate")
     trim_a_tail_sec = max(0.0, track_a.duration_sec - a_cut)
-    if item.get("trim_a_tail_sec") is not None:
-        trim_a_tail_sec = max(0.0, float(item.get("trim_a_tail_sec")))
+    trim_override = item.get("trim_a_tail_sec")
+    if isinstance(trim_override, (int, float, str)):
+        trim_a_tail_sec = max(0.0, float(trim_override))
 
     notes = list(rescored.notes) + [
         "manual transition override",
@@ -208,7 +211,7 @@ def apply_manual_transition_override(
         perceptual_loudness_score=rescored.perceptual_loudness_score,
         compatibility_score=rescored.compatibility_score,
         notes=notes,
-        soft_duck_db=float(item.get("soft_duck_db", base.soft_duck_db)),
+        soft_duck_db=coerce_float_override(item, "soft_duck_db", base.soft_duck_db),
         soft_duck_target=str(item.get("soft_duck_target", base.soft_duck_target)),
     )
 
@@ -248,7 +251,7 @@ def validate_setlist_formats(tracks: Sequence[TrackSpec]) -> tuple[List[Dict[str
 def plan_setlist_mix(
     tracks: Sequence[TrackSpec],
     *,
-    manifest_settings: Optional[Dict] = None,
+    manifest_settings: dict[str, object] | None = None,
     transition_mode: str = "recommended",
     profile: str = "edm",
     scoring_config: Optional[str] = None,

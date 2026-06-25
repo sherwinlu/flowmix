@@ -4,7 +4,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, cast
 
 import numpy as np
 from pydub import AudioSegment
@@ -196,10 +196,13 @@ def build_transition_audio(seg_a: AudioSegment, seg_b: AudioSegment, cand: Trans
     b_cue_ms = sec_to_ms(cand.b_cue_sec)
     overlap_ms = sec_to_ms(cand.overlap_sec)
 
-    prefix = seg_a[:a_fade_start_ms]
-    raw_a_tail = seg_a[a_fade_start_ms:a_cut_ms].fade_out(overlap_ms)
-    raw_b_after_cue = seg_b[b_cue_ms:].apply_gain(cand.b_gain_db)
-    raw_b_head = raw_b_after_cue[:overlap_ms].fade_in(overlap_ms)
+    prefix = cast(AudioSegment, seg_a[:a_fade_start_ms])
+    a_slice = cast(AudioSegment, seg_a[a_fade_start_ms:a_cut_ms])
+    raw_a_tail = cast(AudioSegment, a_slice.fade_out(overlap_ms))
+    b_after_cue = cast(AudioSegment, seg_b[b_cue_ms:])
+    raw_b_after_cue = cast(AudioSegment, b_after_cue.apply_gain(cand.b_gain_db))
+    b_head_slice = cast(AudioSegment, raw_b_after_cue[:overlap_ms])
+    raw_b_head = cast(AudioSegment, b_head_slice.fade_in(overlap_ms))
 
     if cand.soft_duck_db < -0.01:
         if cand.soft_duck_target == "a":
@@ -215,10 +218,10 @@ def build_transition_audio(seg_a: AudioSegment, seg_b: AudioSegment, cand: Trans
     mixed = a_tail.overlay(b_head)
 
     recovery_ms = min(2000, max(0, len(raw_b_after_cue) - overlap_ms))
-    b_remaining = raw_b_after_cue[overlap_ms:]
+    b_remaining = cast(AudioSegment, raw_b_after_cue[overlap_ms:])
     if transition_safety_pad_db < -0.01 and recovery_ms > 0:
-        b_recovery = apply_gain_ramp(b_remaining[:recovery_ms], transition_safety_pad_db, 0.0)
-        b_continuation = b_recovery + b_remaining[recovery_ms:]
+        b_recovery = apply_gain_ramp(cast(AudioSegment, b_remaining[:recovery_ms]), transition_safety_pad_db, 0.0)
+        b_continuation = b_recovery + cast(AudioSegment, b_remaining[recovery_ms:])
     else:
         b_continuation = b_remaining
 
@@ -255,4 +258,4 @@ def render_candidate(seg_a: AudioSegment, seg_b: AudioSegment, cand: TransitionC
 
     if snippet_path:
         snip_start, snip_end = snippet_window_ms(cand, len(final))
-        export_wav_matching_subtype(final[snip_start:snip_end], snippet_path, output_subtype)
+        export_wav_matching_subtype(cast(AudioSegment, final[snip_start:snip_end]), snippet_path, output_subtype)

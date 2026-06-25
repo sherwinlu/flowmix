@@ -447,7 +447,7 @@ def camelot_compat(a: Optional[str], b: Optional[str]) -> float:
 
 def get_torch_device(prefer_mps: bool = True) -> str:
     try:
-        import torch
+        import torch  # pyright: ignore[reportMissingImports]
         if prefer_mps and getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
             return "mps"
         if torch.cuda.is_available():
@@ -607,16 +607,16 @@ def vocal_segments_demucs(audio_path: str, start_sec: float, duration_sec: float
     Fallback path: demucs.separate CLI + cached vocals.wav when demucs.api is absent.
     """
     try:
-        from demucs.api import Separator  # type: ignore
+        from demucs.api import Separator  # pyright: ignore[reportMissingImports]
     except ModuleNotFoundError as exc:
         if exc.name not in {"demucs.api", "demucs"}:
             raise
         vocals_path = _demucs_cli_vocals_path(audio_path)
         return _segments_from_vocals_wav(vocals_path, start_sec, duration_sec, threshold_db)
 
-    import torchaudio
+    import torchaudio  # pyright: ignore[reportMissingImports]
 
-    info = torchaudio.info(audio_path)
+    info = torchaudio.info(audio_path)  # pyright: ignore[reportAttributeAccessIssue]
     sr_native = int(info.sample_rate)
     frame_offset = int(start_sec * sr_native)
     requested_frames = int(duration_sec * sr_native)

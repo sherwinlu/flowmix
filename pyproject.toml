@@ -44,7 +44,15 @@ demucs = [
 dev = [
   "pytest>=8",
   "pytest-cov>=5",
+  "basedpyright>=1.28",
 ]
+
+[tool.basedpyright]
+pythonVersion = "3.11"
+include = ["flowmix_*.py"]
+exclude = ["tests/", "examples/"]
+typeCheckingMode = "basic"
+reportMissingTypeStubs = false
 
 [project.urls]
 Homepage = "https://github.com/sherwinlu/flowmix"
