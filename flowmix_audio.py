@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import math
 import subprocess
@@ -38,18 +39,115 @@ logger = logging.getLogger(__name__)
 
 
 # -----------------------------
-# WAV-only validation
+# Audio format validation
 # -----------------------------
 
 SUPPORTED_WAV_SUFFIXES = {".wav", ".wave"}
+SUPPORTED_MP3_SUFFIXES = {".mp3"}
+SUPPORTED_INPUT_SUFFIXES = SUPPORTED_WAV_SUFFIXES | SUPPORTED_MP3_SUFFIXES
+SUPPORTED_OUTPUT_SUFFIXES = SUPPORTED_WAV_SUFFIXES | SUPPORTED_MP3_SUFFIXES
 
 LOSSLESS_WAV_SUBTYPES = {"PCM_16", "PCM_24", "PCM_32", "FLOAT", "DOUBLE"}
+LOSSY_MP3_SUBTYPE = "MP3"
+DEFAULT_MP3_BITRATE = "320k"
 
 # Shared transition search constants. Keep candidate generation and analysis-window
 # coverage tied to the same source of truth so future overlap additions cannot
 # silently create stale local-energy curves.
 OVERLAP_LENGTHS = [2.0, 3.0, 4.0, 6.0, 8.0, 10.0, 12.0]
 MAX_OVERLAP_SEC = max(OVERLAP_LENGTHS)
+
+def _is_lossless_wav(path: Path) -> bool:
+    return path.suffix.lower() in SUPPORTED_WAV_SUFFIXES
+
+
+def _is_mp3(path: Path) -> bool:
+    return path.suffix.lower() in SUPPORTED_MP3_SUFFIXES
+
+
+@dataclass(frozen=True)
+class ProbedAudioMetadata:
+    samplerate: int
+    channels: int
+    duration_sec: float
+
+
+def _ffprobe_audio_metadata(path: Path) -> ProbedAudioMetadata:
+    proc = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "a:0",
+            "-show_entries",
+            "stream=sample_rate,channels",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "json",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip() or f"ffprobe failed for {path.name}")
+    payload = json.loads(proc.stdout or "{}")
+    streams = payload.get("streams") or []
+    if not streams:
+        raise RuntimeError(f"No audio stream found in {path.name}")
+    stream = streams[0]
+    fmt = payload.get("format") or {}
+    return ProbedAudioMetadata(
+        samplerate=int(stream.get("sample_rate") or 0),
+        channels=int(stream.get("channels") or 0),
+        duration_sec=float(fmt.get("duration") or 0.0),
+    )
+
+
+def _validate_lossless_wav_input(p: Path, label: str) -> None:
+    with p.open("rb") as f:
+        header = f.read(12)
+    if len(header) < 12 or header[0:4] not in (b"RIFF", b"RF64") or header[8:12] != b"WAVE":
+        raise ValueError(f"{label} has a .wav extension but is not a RIFF/RF64 WAVE file: {p.name}")
+
+    info = sf.info(str(p))
+    if info.format != "WAV":
+        raise ValueError(f"{label} is not reported as WAV by soundfile: {p.name} ({info.format})")
+    if info.subtype not in LOSSLESS_WAV_SUBTYPES:
+        raise ValueError(
+            f"{label} WAV subtype is {info.subtype}, not one of {sorted(LOSSLESS_WAV_SUBTYPES)}.\n"
+            "Export a standard PCM or float WAV master before mixing."
+        )
+
+
+def validate_audio_input(path: str, label: str) -> Path:
+    """Validate that an input is a supported WAV or MP3 file."""
+    p = Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"{label} file does not exist: {p}")
+    suffix = p.suffix.lower()
+    if suffix not in SUPPORTED_INPUT_SUFFIXES:
+        raise ValueError(
+            f"{label} must be a WAV or MP3 file. Got: {p.name}\n"
+            "Supported inputs: .wav, .wave, .mp3"
+        )
+
+    try:
+        if _is_lossless_wav(p):
+            _validate_lossless_wav_input(p, label)
+        else:
+            meta = _ffprobe_audio_metadata(p)
+            if meta.duration_sec <= 0.0:
+                raise ValueError(f"{label} MP3 has zero duration: {p.name}")
+            if meta.samplerate <= 0 or meta.channels <= 0:
+                raise ValueError(f"{label} MP3 stream metadata is invalid: {p.name}")
+    except (RuntimeError, ValueError) as exc:
+        raise ValueError(f"{label} could not be read as a valid audio file: {p.name}. Details: {exc}") from exc
+    return p
+
 
 def validate_wav_input(path: str, label: str) -> Path:
     """Validate that an input is a real, supported WAV file, not just a .wav suffix."""
@@ -58,29 +156,15 @@ def validate_wav_input(path: str, label: str) -> Path:
         raise FileNotFoundError(f"{label} file does not exist: {p}")
     if p.suffix.lower() not in SUPPORTED_WAV_SUFFIXES:
         raise ValueError(
-            f"{label} must be a WAV file for this WAV-only build. Got: {p.name}\n"
-            "Use WAV masters for this version. MP3/AAC/FLAC support was intentionally removed "
-            "from this WAV-first branch to avoid lossy encoder delay/padding and re-encoding artifacts."
+            f"{label} must be a WAV file. Got: {p.name}\n"
+            "Use validate_audio_input() for MP3 sources, or export a WAV master before mixing."
         )
-
-    # Content-based validation: confirm RIFF/WAVE header and a lossless PCM/float subtype.
     try:
-        with p.open("rb") as f:
-            header = f.read(12)
-        if len(header) < 12 or header[0:4] not in (b"RIFF", b"RF64") or header[8:12] != b"WAVE":
-            raise ValueError(f"{label} has a .wav extension but is not a RIFF/RF64 WAVE file: {p.name}")
-
-        info = sf.info(str(p))
-        if info.format != "WAV":
-            raise ValueError(f"{label} is not reported as WAV by soundfile: {p.name} ({info.format})")
-        if info.subtype not in LOSSLESS_WAV_SUBTYPES:
-            raise ValueError(
-                f"{label} WAV subtype is {info.subtype}, not one of {sorted(LOSSLESS_WAV_SUBTYPES)}.\n"
-                "Export a standard PCM or float WAV master before mixing."
-            )
+        _validate_lossless_wav_input(p, label)
     except RuntimeError as exc:
         raise ValueError(f"{label} could not be read as a valid WAV file: {p.name}. Details: {exc}") from exc
     return p
+
 
 def wav_info(path: Path) -> Dict[str, object]:
     info = sf.info(str(path))
@@ -91,10 +175,53 @@ def wav_info(path: Path) -> Dict[str, object]:
         "subtype": str(info.subtype),
         "format": str(info.format),
         "duration_sec": float(info.duration),
+        "lossless": True,
     }
 
-def validate_wav_pair_compatibility(track_a: Path, track_b: Path) -> Tuple[Dict[str, object], Dict[str, object]]:
+
+def audio_info(path: Path) -> Dict[str, object]:
+    if _is_lossless_wav(path):
+        return wav_info(path)
+    meta = _ffprobe_audio_metadata(path)
+    return {
+        "path": str(path),
+        "samplerate": meta.samplerate,
+        "channels": meta.channels,
+        "subtype": LOSSY_MP3_SUBTYPE,
+        "format": "MP3",
+        "duration_sec": meta.duration_sec,
+        "lossless": False,
+    }
+
+
+def _compatibility_fields(a_info: Dict[str, object], b_info: Dict[str, object]) -> Tuple[str, ...]:
+    fields: List[str] = ["samplerate", "channels"]
+    if a_info.get("lossless") and b_info.get("lossless"):
+        fields.append("subtype")
+    return tuple(fields)
+
+
+def validate_audio_pair_compatibility(track_a: Path, track_b: Path) -> Tuple[Dict[str, object], Dict[str, object]]:
     """Require A/B format parity so pydub does not silently resample/reconcile masters."""
+    a_info = audio_info(track_a)
+    b_info = audio_info(track_b)
+    fields = _compatibility_fields(a_info, b_info)
+    mismatches = [(f, a_info[f], b_info[f]) for f in fields if a_info[f] != b_info[f]]
+    if mismatches:
+        details = "\n".join(f"  - {field}: Track A={a_val}, Track B={b_val}" for field, a_val, b_val in mismatches)
+        raise ValueError(
+            "Track A and Track B audio formats do not match. Refusing to mix rather than letting "
+            "pydub/ffmpeg silently resample or change bit depth.\n"
+            f"{details}\n"
+            "Export/resample both masters to the same sample rate and channel count before mixing. "
+            "Mixed WAV and MP3 inputs are allowed when those match. "
+            "For all-WAV chains, subtype must also match. Recommended: 48 kHz, stereo, PCM_24."
+        )
+    return a_info, b_info
+
+
+def validate_wav_pair_compatibility(track_a: Path, track_b: Path) -> Tuple[Dict[str, object], Dict[str, object]]:
+    """Require A/B WAV format parity (lossless subtype included)."""
     a_info = wav_info(track_a)
     b_info = wav_info(track_b)
     fields = ("samplerate", "channels", "subtype")
@@ -110,13 +237,66 @@ def validate_wav_pair_compatibility(track_a: Path, track_b: Path) -> Tuple[Dict[
         )
     return a_info, b_info
 
+
+def load_audio_segment(path: Path) -> AudioSegment:
+    if _is_mp3(path):
+        return AudioSegment.from_file(str(path), format="mp3")
+    return AudioSegment.from_file(str(path), format="wav")
+
+
+def lossy_input_note(path: Path) -> Optional[str]:
+    if _is_mp3(path):
+        return (
+            f"Note: {path.name} is a lossy MP3 source; transitions may inherit encoder "
+            "delay/padding or re-encoding artifacts."
+        )
+    return None
+
+
+def _audio_segment_to_stereo_float32(seg: AudioSegment) -> Tuple[np.ndarray, int]:
+    sr = int(seg.frame_rate)
+    channels = int(seg.channels)
+    if len(seg) == 0:
+        return np.zeros((0, max(1, channels)), dtype=np.float32), sr
+    samples = np.array(seg.get_array_of_samples(), dtype=np.float32)
+    if channels > 1:
+        samples = samples.reshape((-1, channels))
+    else:
+        samples = samples.reshape((-1, 1))
+    peak = float(2 ** (8 * seg.sample_width - 1))
+    return (samples / peak).astype(np.float32), sr
+
+
+def read_audio_window(path: str, start_sec: float, duration_sec: float) -> Tuple[np.ndarray, int]:
+    """Read a stereo float32 window without loading the full file when possible."""
+    p = Path(path)
+    if duration_sec <= 0:
+        return np.zeros((0, 2), dtype=np.float32), 48000
+    if _is_lossless_wav(p):
+        info = sf.info(str(p))
+        sr = int(info.samplerate)
+        start_frame = max(0, int(round(start_sec * sr)))
+        frames = int(round(duration_sec * sr))
+        frames = min(frames, max(0, int(info.frames) - start_frame))
+        y, sr_read = sf.read(str(p), start=start_frame, frames=frames, dtype="float32", always_2d=True)
+        return y, int(sr_read)
+    seg = AudioSegment.from_file(
+        str(p),
+        format="mp3",
+        start_second=max(0.0, start_sec),
+        duration=max(0.0, duration_sec),
+    )
+    return _audio_segment_to_stereo_float32(seg)
+
 def validate_loaded_segment_parity(seg_a: AudioSegment, seg_b: AudioSegment) -> None:
-    """Secondary guard after pydub load; catches decoded segment mismatches."""
+    """Secondary guard after pydub load; catches decoded sample-rate/channel mismatches.
+
+    Decoded sample width is intentionally not compared: MP3 and WAV masters that share
+    sample rate and channels can still decode to different internal bit depths.
+    """
     mismatches = []
     if seg_a.frame_rate != seg_b.frame_rate:
         mismatches.append(("frame_rate", seg_a.frame_rate, seg_b.frame_rate))
-    if seg_a.sample_width != seg_b.sample_width:
-        mismatches.append(("sample_width_bytes", seg_a.sample_width, seg_b.sample_width))
     if seg_a.channels != seg_b.channels:
         mismatches.append(("channels", seg_a.channels, seg_b.channels))
     if mismatches:
@@ -125,13 +305,35 @@ def validate_loaded_segment_parity(seg_a: AudioSegment, seg_b: AudioSegment) -> 
             "Decoded AudioSegment formats do not match after loading. Refusing to render.\n" + details
         )
 
-def validate_wav_output(path: str) -> Path:
+
+def resolve_wav_export_subtype(infos: Sequence[Dict[str, object]]) -> Optional[str]:
+    """Choose a WAV PCM subtype for export when inputs may mix WAV and MP3."""
+    for info in infos:
+        if info.get("lossless") and info.get("subtype") in LOSSLESS_WAV_SUBTYPES:
+            return str(info["subtype"])
+    return "PCM_16"
+
+def validate_audio_output(path: str) -> Path:
     p = Path(path)
-    if p.suffix and p.suffix.lower() not in SUPPORTED_WAV_SUFFIXES:
-        raise ValueError(f"Output must be .wav for this WAV-only build. Got: {p.name}")
+    suffix = p.suffix.lower()
+    if suffix and suffix not in SUPPORTED_OUTPUT_SUFFIXES:
+        raise ValueError(f"Output must be .wav or .mp3. Got: {p.name}")
     if not p.suffix:
         p = p.with_suffix(".wav")
     return p
+
+
+def validate_wav_output(path: str) -> Path:
+    p = Path(path)
+    if p.suffix and p.suffix.lower() not in SUPPORTED_WAV_SUFFIXES:
+        raise ValueError(f"Output must be .wav. Got: {p.name}")
+    if not p.suffix:
+        p = p.with_suffix(".wav")
+    return p
+
+
+def output_format_suffix(path: Path) -> str:
+    return path.suffix.lower() if path.suffix else ".wav"
 
 # -----------------------------
 # Utility types
@@ -713,9 +915,8 @@ def overlap_vocal_collision(a_segments: Sequence[VocalSegment], b_segments: Sequ
 # -----------------------------
 
 def analyze_audio(path: str, *, role: str, window_sec: float, manual_bpm: Optional[float], manual_key: Optional[str], vocal_method: str, prefer_mps: bool) -> AudioAnalysis:
-    # 1.0.0 reads duration from the WAV header instead of loading the full file.
-    sf_info = sf.info(path)
-    duration_sec = float(sf_info.frames) / float(sf_info.samplerate)
+    audio_meta = audio_info(Path(path))
+    duration_sec = float(audio_meta["duration_sec"])  # pyright: ignore[reportArgumentType]
     if role == "a":
         start = max(0.0, duration_sec - window_sec)
         dur = duration_sec - start
@@ -724,9 +925,7 @@ def analyze_audio(path: str, *, role: str, window_sec: float, manual_bpm: Option
         dur = min(window_sec, duration_sec)
 
     logger.info("Analyzing %s: %s", "Track A outro" if role == "a" else "Track B intro", Path(path).name)
-    start_frame = int(start * sf_info.samplerate)
-    frames = min(int(dur * sf_info.samplerate), max(0, int(sf_info.frames) - start_frame))
-    y_stereo, sr = sf.read(path, start=start_frame, frames=frames, dtype="float32", always_2d=True)
+    y_stereo, sr = read_audio_window(path, start, dur)
     rms_db, peak_db = stereo_dbfs_from_samples(y_stereo)
     energy_curve = compute_local_energy_curve(y_stereo, sr, start)
     loudness_curve = compute_local_lufs_curve(y_stereo, sr, start)
@@ -741,15 +940,8 @@ def analyze_audio(path: str, *, role: str, window_sec: float, manual_bpm: Option
         # Same rationale as flowmix_cues.py: avoid librosa.load(), which unconditionally
         # touches audioread.available_backends() (and therefore the stdlib aifc/sunau
         # modules removed in Python 3.13) even for plain WAV input. Read the windowed
-        # chunk with soundfile directly and resample with librosa instead.
-        tempo_start_frame = int(round(beat_load_offset * sf_info.samplerate))
-        tempo_frames = min(
-            int(round(beat_load_dur * sf_info.samplerate)),
-            max(0, int(sf_info.frames) - tempo_start_frame),
-        )
-        y_tempo_native, sr_tempo_native = sf.read(
-            path, start=tempo_start_frame, frames=tempo_frames, dtype="float32", always_2d=True
-        )
+        # chunk with soundfile/pydub directly and resample with librosa instead.
+        y_tempo_native, sr_tempo_native = read_audio_window(path, beat_load_offset, beat_load_dur)
         y_tempo_native = (
             np.mean(y_tempo_native, axis=1) if y_tempo_native.size else np.zeros(0, dtype=np.float32)
         )

@@ -17,9 +17,9 @@ from typing import Dict, List, Optional, Tuple, cast
 
 from pydub import AudioSegment
 
-from flowmix_audio import format_timestamp
+from flowmix_audio import format_timestamp, output_format_suffix, resolve_wav_export_subtype, validate_audio_output
 from flowmix_plan import TrackSpec, plan_setlist_mix
-from flowmix_rendering import export_wav_matching_subtype, render_transition_tail, sec_to_ms
+from flowmix_rendering import export_audio, render_transition_tail, sec_to_ms
 from flowmix_reports import build_setlist_report, candidate_verdict
 
 APP_VERSION = "1.0.0"
@@ -123,14 +123,13 @@ def build_continuous_mix(args) -> None:
             if hasattr(args, key) and getattr(args, key) in (None, build_parser().get_default(key)):
                 setattr(args, key, value)
 
-    out_path = Path(args.output)
-    if out_path.suffix.lower() != ".wav":
-        out_path = out_path.with_suffix(".wav")
+    out_path = validate_audio_output(args.output)
     base = out_path.with_suffix("")
+    fmt_suffix = output_format_suffix(out_path)
 
     print(f"{APP_NAME}")
     print(f"Loaded setlist with {len(tracks)} tracks.")
-    print("WAV-only chain mode: preserving source timing/pitch; one selected transition per junction.")
+    print("Chain mode: preserving source timing/pitch; one selected transition per junction.")
 
     mix_plan = plan_setlist_mix(
         tracks,
@@ -149,8 +148,14 @@ def build_continuous_mix(args) -> None:
     infos = mix_plan.wav_infos
     segments = mix_plan.segments
     scoring_profile = mix_plan.scoring_profile
-    source_subtype = cast(str | None, infos[0].get("subtype"))
-    print(f"Setlist WAV format: {infos[0]['samplerate']} Hz, {infos[0]['channels']} ch, {source_subtype}")
+    source_subtype = resolve_wav_export_subtype(infos)
+    input_formats = ", ".join(
+        f"{Path(cast(str, info['path'])).suffix.lower()} ({info['subtype']})" for info in infos[:3]
+    )
+    if len(infos) > 3:
+        input_formats += ", ..."
+    print(f"Setlist decode: {infos[0]['samplerate']} Hz, {infos[0]['channels']} ch — inputs: {input_formats}")
+    print(f"Output: {fmt_suffix} ({'MP3 320 kbps' if fmt_suffix == '.mp3' else source_subtype or 'PCM_16'})")
     if scoring_profile is not None:
         print(f"Using scoring profile: {scoring_profile.name} — {scoring_profile.description}")
     if mix_plan.effective_search_a_sec > float(args.search_a_sec):
@@ -213,7 +218,7 @@ def build_continuous_mix(args) -> None:
         final = final.apply_gain(final_gain_db)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    export_wav_matching_subtype(final, out_path, source_subtype)
+    export_audio(final, out_path, source_subtype if fmt_suffix == ".wav" else None)
 
     snippet_outputs = []
     if args.make_snippets:
@@ -222,9 +227,13 @@ def build_continuous_mix(args) -> None:
         for idx, label, start_sec in snippet_requests:
             start_ms = sec_to_ms(max(0.0, start_sec - 12.0))
             end_ms = sec_to_ms(min(len(final) / 1000.0, start_sec + 24.0))
-            snip_name = f"transition_{idx:02d}_{sanitize_filename(label)}.wav"
+            snip_name = f"transition_{idx:02d}_{sanitize_filename(label)}{fmt_suffix}"
             snip_path = snippet_dir / snip_name
-            export_wav_matching_subtype(cast(AudioSegment, final[start_ms:end_ms]), snip_path, source_subtype)
+            export_audio(
+                cast(AudioSegment, final[start_ms:end_ms]),
+                snip_path,
+                source_subtype if fmt_suffix == ".wav" else None,
+            )
             snippet_outputs.append(str(snip_path))
 
     report_path = base.with_suffix(".flowmix_1_0_0_setlist_report.json")
@@ -258,8 +267,8 @@ def build_continuous_mix(args) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="FlowMix 1.0.0 setlist builder")
-    p.add_argument("setlist", help="JSON manifest or text file with one WAV path per line")
-    p.add_argument("-o", "--output", default="flowmix_setlist_1_0_0.wav", help="Output continuous WAV mix")
+    p.add_argument("setlist", help="JSON manifest or text file with one audio path per line")
+    p.add_argument("-o", "--output", default="flowmix_setlist_1_0_0.wav", help="Output continuous mix (.wav or .mp3)")
     p.add_argument("--transition-mode", default="recommended", choices=["recommended", "vocal_safe", "beat_aligned", "quick_cut", "smooth", "profile", "vocal_ducked", "long_blend"], help="Which transition style to select at each junction")
     p.add_argument("--make-snippets", action="store_true", help="Export transition audition snippets from the final continuous mix")
     p.add_argument("--profile", default="edm", help="Built-in scoring profile for --transition-mode profile: edm, vocal_trance, lounge, jazz, heart, cinematic")

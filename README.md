@@ -583,17 +583,18 @@ Relative paths are resolved relative to the manifest file. `~` paths are expande
 
 Other manifest `settings` keys (`transition_mode`, `profile`, `vocal_method`, and so on) apply only when you pass `--apply-manifest-settings`. Without it, CLI arguments control those defaults; **`transition_overrides` still apply** as described in [Per-transition overrides](#per-transition-overrides).
 
-## WAV policy
+## Audio format policy
 
-FlowMix 1.0 is WAV-first.
+FlowMix accepts **WAV and MP3 inputs in any combination** — a setlist can mix `.wav` and `.mp3` tracks. All tracks must share the same **sample rate** and **channel count**. When every input is WAV, subtype must also match (PCM_16, PCM_24, and so on).
 
-Inputs must be real RIFF/RF64 WAVE files with matching sample rate, channel count, and subtype across the setlist.
+**Output is one file**, either WAV or MP3 — pick with the `-o` suffix:
 
-Supported subtypes include:
+- `mix.wav` → lossless WAV (default when no suffix is given)
+- `mix.mp3` → MP3 at 320 kbps
 
-```text
-PCM_16, PCM_24, PCM_32, FLOAT, DOUBLE
-```
+WAV export uses the first lossless WAV subtype found in the inputs (otherwise PCM_16). MP3 export ignores source subtype.
+
+WAV masters are still recommended for final release quality; MP3 sources may add encoder delay or re-encoding artifacts at transitions.
 
 ## Suggested workflow
 

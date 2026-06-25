@@ -113,7 +113,7 @@ def build_two_track_report(
         "app": app_name,
         "schema_version": TWO_TRACK_REPORT_SCHEMA_VERSION,
         "wav_format_validation": dict(wav_format_validation),
-        "input_policy": "WAV-only full-mix processing. Stem analysis/rendering deferred.",
+        "input_policy": "WAV and MP3 full-mix inputs. Output is a single .wav or .mp3 file. Stem analysis/rendering deferred.",
         "recommended_candidate": recommended,
         "mode": mode,
         "profile": profile,
@@ -121,7 +121,8 @@ def build_two_track_report(
         "ranked_candidates": list(ranked),
         "notes": [
             "No time-stretching is applied. Finished masters keep original tempo and pitch.",
-            "WAV input/output only. Inputs are content-validated as RIFF/WAVE and must match sample rate, channel count, and WAV subtype.",
+            "WAV and MP3 inputs may be mixed in one setlist when sample rate and channel count match.",
+            "Output format is chosen from the destination suffix (.wav or .mp3), not both.",
             "Demucs vocal separation is used when available/requested; heuristic fallback is used otherwise.",
             "Stem-file processing is intentionally deferred to a later version.",
             "Precomputes stereo RMS and short-term LUFS curves in memory; scoring does not read audio from disk.",
@@ -159,7 +160,7 @@ def build_setlist_report(
     report = {
         "app": app_name,
         "schema_version": SETLIST_REPORT_SCHEMA_VERSION,
-        "input_policy": "WAV-only full-mix setlist processing. Stem analysis/rendering deferred.",
+        "input_policy": "WAV and MP3 full-mix inputs. Output is a single .wav or .mp3 file. Stem analysis/rendering deferred.",
         "transition_mode": transition_mode,
         "transition_overrides": transition_overrides,
         "profile": profile,

@@ -40,9 +40,14 @@ from flowmix_audio import (
     segments_from_activity,
     stereo_dbfs_from_samples,
     validate_loaded_segment_parity,
+    validate_audio_input,
+    validate_audio_output,
+    validate_audio_pair_compatibility,
     validate_wav_input,
     validate_wav_output,
     validate_wav_pair_compatibility,
+    output_format_suffix,
+    resolve_wav_export_subtype,
     vocal_active_fraction,
     vocal_segments_demucs,
     vocal_segments_heuristic,
@@ -63,6 +68,7 @@ from flowmix_rendering import (
     apply_gain_ramp,
     apply_soft_duck,
     conservative_sum_peak_db,
+    export_audio,
     export_wav_matching_subtype,
     render_candidate,
 )
@@ -75,13 +81,13 @@ from flowmix_reports import (
 )
 
 APP_VERSION = "1.0.0"
-APP_NAME = f"FlowMix {APP_VERSION} WAV"
+APP_NAME = f"FlowMix {APP_VERSION}"
 
 
 def run(args) -> None:
-    out_base = validate_wav_output(args.output)
+    out_base = validate_audio_output(args.output)
     base = out_base.with_suffix("")
-    fmt_suffix = ".wav"
+    fmt_suffix = output_format_suffix(out_base)
 
     if args.mode != "profile" and (args.scoring_config is not None or args.profile != "edm"):
         print(
@@ -116,7 +122,7 @@ def run(args) -> None:
     recommended = mix_plan.recommended_name
     scoring_profile = mix_plan.scoring_profile
 
-    print("WAV-only mode: preserving source timing/pitch and exporting lossless WAV candidates.")
+    print("Preserving source timing/pitch; output format follows the destination suffix (.wav or .mp3).")
     print(f"Track A format: {a_wav_info['samplerate']} Hz, {a_wav_info['channels']} ch, {a_wav_info['subtype']}")
     print(f"Track B format: {b_wav_info['samplerate']} Hz, {b_wav_info['channels']} ch, {b_wav_info['subtype']}")
     if scoring_profile is not None:
@@ -137,6 +143,8 @@ def run(args) -> None:
             file=sys.stderr,
         )
 
+    wav_export_subtype = resolve_wav_export_subtype([a_wav_info, b_wav_info])
+
     outputs = []
     for cand in candidates:
         out = base.with_name(base.name + f"_{cand.name}").with_suffix(fmt_suffix)
@@ -147,7 +155,14 @@ def run(args) -> None:
             f"B cue {format_timestamp(cand.b_cue_sec)} ({cand.b_cue_sec:.2f}s), overlap {cand.overlap_sec:.1f}s, "
             f"B gain {cand.b_gain_db:+.1f} dB"
         )
-        render_candidate(seg_a, seg_b, cand, out, snippet, output_subtype=cast(str | None, a_wav_info.get("subtype")))
+        render_candidate(
+            seg_a,
+            seg_b,
+            cand,
+            out,
+            snippet,
+            output_subtype=wav_export_subtype if fmt_suffix == ".wav" else None,
+        )
         outputs.append({"name": cand.name, "file": str(out), "snippet": str(snippet) if snippet else None, "candidate": asdict(cand)})
 
     outputs_by_name = {o["name"]: o for o in outputs}

@@ -13,11 +13,14 @@ from flowmix_audio import (
     MAX_OVERLAP_SEC,
     AudioAnalysis,
     TransitionCandidate,
+    _compatibility_fields,
     analyze_audio,
+    audio_info,
+    load_audio_segment,
+    lossy_input_note,
+    validate_audio_input,
+    validate_audio_pair_compatibility,
     validate_loaded_segment_parity,
-    validate_wav_input,
-    validate_wav_pair_compatibility,
-    wav_info,
 )
 from flowmix_scoring import choose_candidates, profile_search_parameters, score_candidate
 from flowmix_reports import ranked_candidate_summary
@@ -217,28 +220,32 @@ def apply_manual_transition_override(
 
 
 def validate_setlist_formats(tracks: Sequence[TrackSpec]) -> tuple[List[Dict[str, object]], List[AudioSegment]]:
-    """Validate all WAVs and load decoded segments before expensive analysis."""
+    """Validate all inputs and load decoded segments before expensive analysis."""
     infos: List[Dict[str, object]] = []
     segments: List[AudioSegment] = []
     first_info: Optional[Dict[str, object]] = None
     first_seg: Optional[AudioSegment] = None
 
     for idx, spec in enumerate(tracks, start=1):
-        p = validate_wav_input(spec.path, f"Track {idx}")
-        info = wav_info(p)
+        p = validate_audio_input(spec.path, f"Track {idx}")
+        note = lossy_input_note(p)
+        if note:
+            print(note, file=sys.stderr)
+        info = audio_info(p)
         if first_info is None:
             first_info = info
         else:
-            mismatches = [(f, first_info[f], info[f]) for f in ("samplerate", "channels", "subtype") if first_info[f] != info[f]]
+            fields = _compatibility_fields(first_info, info)
+            mismatches = [(f, first_info[f], info[f]) for f in fields if first_info[f] != info[f]]
             if mismatches:
                 details = "\n".join(f"  - {field}: first={a_val}, track {idx}={b_val}" for field, a_val, b_val in mismatches)
                 raise ValueError(
-                    "All setlist WAV formats must match. Refusing to chain tracks rather than silently resampling.\n"
+                    "All setlist audio formats must match. Refusing to chain tracks rather than silently resampling.\n"
                     + details
                 )
         infos.append(info)
 
-        seg = AudioSegment.from_file(str(p), format="wav")
+        seg = load_audio_segment(p)
         if first_seg is None:
             first_seg = seg
         else:
@@ -384,17 +391,21 @@ def plan_two_track_mix(
     prefer_mps: bool = True,
 ) -> TwoTrackMixPlan:
     """Analyze both tracks, score candidates, and return a render-ready plan."""
-    track_a_path = validate_wav_input(track_a, "Track A")
-    track_b_path = validate_wav_input(track_b, "Track B")
-    a_wav_info, b_wav_info = validate_wav_pair_compatibility(track_a_path, track_b_path)
+    track_a_path = validate_audio_input(track_a, "Track A")
+    track_b_path = validate_audio_input(track_b, "Track B")
+    for p in (track_a_path, track_b_path):
+        note = lossy_input_note(p)
+        if note:
+            print(note, file=sys.stderr)
+    a_wav_info, b_wav_info = validate_audio_pair_compatibility(track_a_path, track_b_path)
 
     scoring_profile = load_scoring_profile(profile, scoring_config) if mode == "profile" else None
     effective_search_a_sec, effective_search_b_sec = _effective_search_windows(
         search_a_sec, search_b_sec, max_trim_a_sec, b_cue_max_sec, scoring_profile
     )
 
-    seg_a = AudioSegment.from_file(str(track_a_path), format="wav")
-    seg_b = AudioSegment.from_file(str(track_b_path), format="wav")
+    seg_a = load_audio_segment(track_a_path)
+    seg_b = load_audio_segment(track_b_path)
     validate_loaded_segment_parity(seg_a, seg_b)
 
     a_analysis = analyze_audio(
