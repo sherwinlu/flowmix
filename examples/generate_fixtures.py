@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Generate small demo WAV fixtures for examples/setlist_example.json."""
+"""Generate synthetic demo WAV fixtures for examples/setlist_example.json.
+
+Output is procedurally generated (clicks + sine tone). Do not replace with
+copyrighted masters; fixtures are not committed to the repository.
+"""
 from __future__ import annotations
 
 from pathlib import Path
