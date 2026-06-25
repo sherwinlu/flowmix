@@ -2,7 +2,7 @@
 
 # FlowMix
 
-Profile-driven continuous music mix engine for WAV masters.
+Profile-driven continuous music mix engine for full-mix audio (WAV or MP3).
 
 FlowMix can render auditionable two-track transitions or build a full continuous setlist mix from an ordered manifest. It is designed for people who want repeatable, explainable, audio-aware transitions without manually editing every handoff.
 
@@ -10,7 +10,9 @@ The same engine can be tuned for EDM/workout mixes, vocal trance, lounge/backgro
 
 ## What it does
 
-* Builds continuous WAV mixes from full-mix WAV masters.
+* Builds continuous mixes from full-mix WAV or MP3 sources.
+* Accepts mixed `.wav` and `.mp3` tracks in one setlist when sample rate and channel count match.
+* Exports a single output file as `.wav` (default) or `.mp3` via the `-o` suffix.
 * Preserves original timing and pitch by default.
 * Renders two-track transition tests or full setlist mixes.
 * Scores transition candidates using vocal safety, beat/onset evidence, energy, loudness, key/BPM compatibility, cue depth, and tail trimming.
@@ -32,7 +34,13 @@ python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 ```
 
-Run a demo setlist mix (uses bundled fixture WAVs under `examples/fixtures/`):
+Generate synthetic demo audio (not checked into git):
+
+```bash
+python examples/generate_fixtures.py
+```
+
+Run a demo setlist mix (uses generated fixtures under `examples/fixtures/`):
 
 ```bash
 python flowmix_setlist.py examples/setlist_example.json \
@@ -52,10 +60,18 @@ python flowmix_setlist.py examples/setlist_example.json \
   --make-snippets
 ```
 
+MP3 output uses the same command with a `.mp3` destination:
+
+```bash
+python flowmix_setlist.py examples/setlist_example.json \
+  -o output/flowmix_demo.mp3 \
+  --apply-manifest-settings
+```
+
 Run a two-track transition test:
 
 ```bash
-python flowmix_two_tracks.py "Track A.wav" "Track B.wav" \
+python flowmix_two_tracks.py "Track A.wav" "Track B.mp3" \
   -o output/transition.wav \
   --mode profile \
   --profile edm \
@@ -80,7 +96,7 @@ For slower final QA with neural vocal separation, use:
 FlowMix is a command-line Python project. It needs:
 
 * Python 3.11 or newer (CI tests 3.11 and 3.12; 3.13+ works when your audio stack supports it).
-* `ffmpeg` available on your command line.
+* `ffmpeg` available on your command line (required for MP3 input/output and pydub export).
 * Install with `pip install -e .` or `pip install -r requirements.txt`.
 * Optional: `pip install -e ".[demucs]"` or `pip install -r requirements-demucs.txt` for `--vocal-method demucs`.
 
@@ -270,6 +286,8 @@ flowmix-cues examples/setlist_example.json --out output/flowmix_cues.csv
 ```
 
 ## Multi-track setlist usage
+
+Setlist paths may be `.wav`, `.mp3`, or a mix of both. Every track must share the same sample rate and channel count. Pick output format with `-o` (`.wav` or `.mp3`).
 
 ```bash
 python flowmix_setlist.py examples/setlist_example.json \
@@ -557,11 +575,13 @@ To change those behaviors, edit the TOML file or pass a custom profile with `--s
 
 ## Setlist manifest format
 
+Each `path` may point to a WAV or MP3 file. Mixed formats are fine when decode parameters match.
+
 ```json
 {
   "tracks": [
-    {"path": "A.wav", "title": "Track A", "bpm": 128, "key": "E major"},
-    {"path": "B.wav", "title": "Track B", "bpm": 130, "key": "A minor"}
+    {"path": "masters/A.wav", "title": "Track A", "bpm": 128, "key": "E major"},
+    {"path": "downloads/B.mp3", "title": "Track B", "bpm": 130, "key": "A minor"}
   ],
   "settings": {
     "transition_mode": "profile",
@@ -583,17 +603,20 @@ Relative paths are resolved relative to the manifest file. `~` paths are expande
 
 Other manifest `settings` keys (`transition_mode`, `profile`, `vocal_method`, and so on) apply only when you pass `--apply-manifest-settings`. Without it, CLI arguments control those defaults; **`transition_overrides` still apply** as described in [Per-transition overrides](#per-transition-overrides).
 
-## WAV policy
+## Audio format policy
 
-FlowMix 1.0 is WAV-first.
+FlowMix accepts **WAV and MP3 inputs in any combination** — a setlist can mix `.wav` and `.mp3` tracks. All tracks must share the same **sample rate** and **channel count**. When every input is WAV, subtype must also match (PCM_16, PCM_24, and so on).
 
-Inputs must be real RIFF/RF64 WAVE files with matching sample rate, channel count, and subtype across the setlist.
+**Output is one file**, either WAV or MP3 — pick with the `-o` suffix:
 
-Supported subtypes include:
+- `mix.wav` → lossless WAV (default when no suffix is given)
+- `mix.mp3` → MP3 at 320 kbps
 
-```text
-PCM_16, PCM_24, PCM_32, FLOAT, DOUBLE
-```
+WAV export uses the first lossless WAV subtype found in the inputs (otherwise PCM_16). MP3 export ignores source subtype.
+
+WAV masters are still recommended for final release quality; MP3 sources may add encoder delay or re-encoding artifacts at transitions.
+
+`flowmix_cues.py` accepts the same `.wav` / `.mp3` inputs for video cue-sheet generation.
 
 ## Suggested workflow
 
@@ -602,7 +625,7 @@ PCM_16, PCM_24, PCM_32, FLOAT, DOUBLE
 3. Listen to transition snippets first.
 4. Use manual overrides for any transition that sounds better by ear than the automatic candidate.
 5. Run a final `--vocal-method demucs` pass if vocal-aware separation helps your material.
-6. Use the full WAV render as the release candidate only after snippets pass.
+6. Use the full mix render (`.wav` or `.mp3`) as the release candidate only after snippets pass.
 
 ## Repository layout
 
@@ -631,7 +654,7 @@ flowmix/
 
   configs/
   examples/
-    fixtures/              # small demo WAVs for setlist_example.json
+    fixtures/              # generated synthetic demo WAVs (see fixtures/README.md)
   tests/
 ```
 

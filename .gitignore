@@ -9,9 +9,8 @@ venv/
 .coverage
 *.egg-info/
 
-# Audio outputs / large media
+# Audio outputs / large media (do not commit copyrighted or third-party masters)
 *.wav
-!examples/fixtures/*.wav
 *.wave
 *.mp3
 *.aiff

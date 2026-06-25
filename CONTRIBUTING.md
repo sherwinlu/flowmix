@@ -39,6 +39,10 @@ python -m pytest
 
 Match the surrounding module: type hints, small focused functions, and minimal comments unless the logic is non-obvious.
 
+## Audio content
+
+Do **not** commit copyrighted or third-party audio masters. Tests and examples use procedurally generated sine/click WAVs created at runtime or via `examples/generate_fixtures.py`.
+
 ## License
 
 By contributing, you agree that your contributions will be licensed under the MIT License.

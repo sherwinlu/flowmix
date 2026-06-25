@@ -1,4 +1,4 @@
-"""Audio rendering and WAV export helpers for FlowMix."""
+"""Audio rendering and export helpers for FlowMix."""
 from __future__ import annotations
 
 import math
@@ -9,7 +9,7 @@ from typing import Optional, Tuple, cast
 import numpy as np
 from pydub import AudioSegment
 
-from flowmix_audio import TransitionCandidate, clamp
+from flowmix_audio import DEFAULT_MP3_BITRATE, SUPPORTED_MP3_SUFFIXES, TransitionCandidate, clamp
 
 
 def sec_to_ms(sec: float) -> int:
@@ -189,6 +189,25 @@ def export_wav_matching_subtype(seg: AudioSegment, path: Path, source_subtype: O
         seg.export(str(path), format="wav")
 
 
+def export_mp3(seg: AudioSegment, path: Path, *, bitrate: str = DEFAULT_MP3_BITRATE) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    seg.export(str(path), format="mp3", bitrate=bitrate)
+
+
+def export_audio(
+    seg: AudioSegment,
+    path: Path,
+    source_subtype: Optional[str],
+    *,
+    mp3_bitrate: str = DEFAULT_MP3_BITRATE,
+) -> None:
+    """Export WAV or MP3 based on the destination suffix."""
+    if path.suffix.lower() in SUPPORTED_MP3_SUFFIXES:
+        export_mp3(seg, path, bitrate=mp3_bitrate)
+        return
+    export_wav_matching_subtype(seg, path, source_subtype)
+
+
 def build_transition_audio(seg_a: AudioSegment, seg_b: AudioSegment, cand: TransitionCandidate) -> TransitionAudio:
     """Pure transition render shared by two-track export and setlist tail stitching."""
     a_fade_start_ms = sec_to_ms(cand.a_fade_start_sec)
@@ -254,8 +273,8 @@ def render_candidate(seg_a: AudioSegment, seg_b: AudioSegment, cand: TransitionC
     final = apply_final_peak_guard(transition.full)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    export_wav_matching_subtype(final, output_path, output_subtype)
+    export_audio(final, output_path, output_subtype)
 
     if snippet_path:
         snip_start, snip_end = snippet_window_ms(cand, len(final))
-        export_wav_matching_subtype(cast(AudioSegment, final[snip_start:snip_end]), snippet_path, output_subtype)
+        export_audio(cast(AudioSegment, final[snip_start:snip_end]), snippet_path, output_subtype)

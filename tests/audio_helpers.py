@@ -22,6 +22,24 @@ def write_stereo_wav(
     return path
 
 
+def write_stereo_mp3(
+    path: Path,
+    *,
+    duration: float = 4.0,
+    sr: int = 48000,
+    freq: float = 440.0,
+    amp: float = 0.05,
+    bitrate: str = "320k",
+) -> Path:
+    wav_path = path.with_suffix(".wav")
+    write_stereo_wav(wav_path, duration=duration, sr=sr, freq=freq, amp=amp)
+    from pydub import AudioSegment
+
+    AudioSegment.from_file(str(wav_path), format="wav").export(str(path), format="mp3", bitrate=bitrate)
+    wav_path.unlink(missing_ok=True)
+    return path
+
+
 def write_click_track(path: Path, *, duration: float, sr: int = 48000, bpm: float = 128.0) -> Path:
     """Stereo WAV with periodic clicks for beat detection tests."""
     n = int(sr * duration)
