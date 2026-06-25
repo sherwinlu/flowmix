@@ -738,8 +738,26 @@ def analyze_audio(path: str, *, role: str, window_sec: float, manual_bpm: Option
     beat_load_offset = start if role == "a" else 0.0
     beat_load_dur = min(dur if role == "a" else duration_sec, 180.0)
     try:
-        y_tempo, sr_tempo = librosa.load(
-            path, sr=22050, mono=True, offset=beat_load_offset, duration=beat_load_dur
+        # Same rationale as flowmix_cues.py: avoid librosa.load(), which unconditionally
+        # touches audioread.available_backends() (and therefore the stdlib aifc/sunau
+        # modules removed in Python 3.13) even for plain WAV input. Read the windowed
+        # chunk with soundfile directly and resample with librosa instead.
+        tempo_start_frame = int(round(beat_load_offset * sf_info.samplerate))
+        tempo_frames = min(
+            int(round(beat_load_dur * sf_info.samplerate)),
+            max(0, int(sf_info.frames) - tempo_start_frame),
+        )
+        y_tempo_native, sr_tempo_native = sf.read(
+            path, start=tempo_start_frame, frames=tempo_frames, dtype="float32", always_2d=True
+        )
+        y_tempo_native = (
+            np.mean(y_tempo_native, axis=1) if y_tempo_native.size else np.zeros(0, dtype=np.float32)
+        )
+        sr_tempo = 22050
+        y_tempo = (
+            librosa.resample(y_tempo_native, orig_sr=sr_tempo_native, target_sr=sr_tempo)
+            if sr_tempo_native != sr_tempo
+            else y_tempo_native
         )
         tempo, beats = librosa.beat.beat_track(y=y_tempo, sr=sr_tempo, units="time")
         tempo = safe_float(np.asarray(tempo).flatten()[0] if np.asarray(tempo).size else tempo, None)
