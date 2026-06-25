@@ -178,7 +178,7 @@ def build_setlist_report(
     validate_report_schema(report, kind="setlist")
     return report
 
-def serialize_analysis(a: AudioAnalysis) -> Dict:
+def serialize_analysis(a: AudioAnalysis) -> dict[str, Any]:
     """JSON-safe analysis summary for reports (curves omitted; they are large and in-memory only)."""
     d = asdict(a)
     d.pop("energy_curve", None)
@@ -209,7 +209,7 @@ def candidate_verdict(c: TransitionCandidate) -> str:
     return "Audition carefully: " + "; ".join(cautions) + "."
 
 
-def ranked_candidate_summary(candidates: List[TransitionCandidate]) -> List[Dict]:
+def ranked_candidate_summary(candidates: List[TransitionCandidate]) -> list[dict[str, Any]]:
     """Return candidates ranked best-to-worst by total score, with component scores."""
     ranked = sorted(candidates, key=lambda c: c.score, reverse=True)
     summary = []

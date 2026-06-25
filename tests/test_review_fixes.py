@@ -122,14 +122,19 @@ def test_analyze_audio_track_a_uses_outro_offset_for_beats(monkeypatch, tmp_path
     wav = write_click_track(tmp_path / "long.wav", duration=240.0, bpm=128.0)
     captured = {}
 
-    def fake_load(path, sr, mono=True, offset=0.0, duration=None):
-        captured["offset"] = offset
-        captured["duration"] = duration
-        n = int(sr * float(duration or 1.0))
-        y = np.zeros(n, dtype=np.float32)
-        return y, sr
+    real_sf_read = flowmix_audio.sf.read
 
-    monkeypatch.setattr(flowmix_audio.librosa, "load", fake_load)
+    def fake_sf_read(path, *args, start=0, frames=-1, **kwargs):
+        # Only the windowed tempo/beat read (called positionally with start=...) is of
+        # interest here; the main stereo read at the top of analyze_audio also calls
+        # sf.read but isn't what this test is checking.
+        if start:
+            sr = flowmix_audio.sf.info(path).samplerate
+            captured["offset"] = start / sr
+            captured["duration"] = frames / sr
+        return real_sf_read(path, *args, start=start, frames=frames, **kwargs)
+
+    monkeypatch.setattr(flowmix_audio.sf, "read", fake_sf_read)
     monkeypatch.setattr(flowmix_audio, "analyze_vocals", lambda *args, **kwargs: ([], "heuristic"))
 
     result = analyze_audio(

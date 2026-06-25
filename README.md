@@ -1,3 +1,5 @@
+![tests](https://github.com/sherwinlu/flowmix/actions/workflows/tests.yml/badge.svg)
+
 # FlowMix
 
 Profile-driven continuous music mix engine for WAV masters.
@@ -114,8 +116,8 @@ python -m pytest
 If you use `pyenv`, this also works well:
 
 ```bash
-pyenv install 3.14.3
-pyenv local 3.14.3
+pyenv install 3.12.8
+pyenv local 3.12.8
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip

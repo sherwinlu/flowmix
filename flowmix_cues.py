@@ -60,6 +60,7 @@ import numpy as np
 
 try:
     import librosa
+    import soundfile as sf
 except ImportError as exc:
     raise SystemExit(
         "Missing dependency: librosa\n\n"
@@ -391,7 +392,16 @@ def find_breakdown_candidate(
 
 
 def analyze_track(audio_file: Path, bpm_hint: Optional[float]) -> Tuple[float, Optional[float], Dict[str, Optional[float]], str, str]:
-    y, sr = librosa.load(str(audio_file), sr=22050, mono=True)
+    # Read directly via soundfile and resample with librosa, rather than librosa.load().
+    # librosa.load() unconditionally calls audioread.available_backends() before it ever
+    # tries soundfile, which imports the stdlib aifc/sunau modules. Those were removed in
+    # Python 3.13 (PEP 594) and the released audioread package has not been patched for it,
+    # so librosa.load() raises ModuleNotFoundError on 3.13+ even for plain WAV input that
+    # soundfile can read directly. FlowMix is WAV-only, so we never need the audioread path.
+    y_native, sr_native = sf.read(str(audio_file), dtype="float32", always_2d=True)
+    y_native = np.mean(y_native, axis=1) if y_native.size else np.zeros(0, dtype=np.float32)
+    sr = 22050
+    y = librosa.resample(y_native, orig_sr=sr_native, target_sr=sr) if sr_native != sr else y_native
     duration_sec = float(librosa.get_duration(y=y, sr=sr))
 
     hop_length = 512
@@ -426,7 +436,7 @@ def analyze_track(audio_file: Path, bpm_hint: Optional[float]) -> Tuple[float, O
     # BPM detection.
     bpm_detected = None
     try:
-        tempo_raw = librosa.beat.tempo(onset_envelope=onset_env, sr=sr, hop_length=hop_length, aggregate=np.median)
+        tempo_raw = librosa.feature.rhythm.tempo(onset_envelope=onset_env, sr=sr, hop_length=hop_length, aggregate=np.median)
         if len(tempo_raw):
             bpm_detected = float(tempo_raw[0])
             if bpm_hint:

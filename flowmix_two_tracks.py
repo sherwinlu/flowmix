@@ -7,7 +7,7 @@ import json
 import sys
 from dataclasses import asdict
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 from pydub import AudioSegment
 
@@ -147,7 +147,7 @@ def run(args) -> None:
             f"B cue {format_timestamp(cand.b_cue_sec)} ({cand.b_cue_sec:.2f}s), overlap {cand.overlap_sec:.1f}s, "
             f"B gain {cand.b_gain_db:+.1f} dB"
         )
-        render_candidate(seg_a, seg_b, cand, out, snippet, output_subtype=a_wav_info["subtype"])
+        render_candidate(seg_a, seg_b, cand, out, snippet, output_subtype=cast(str | None, a_wav_info.get("subtype")))
         outputs.append({"name": cand.name, "file": str(out), "snippet": str(snippet) if snippet else None, "candidate": asdict(cand)})
 
     outputs_by_name = {o["name"]: o for o in outputs}
@@ -172,7 +172,7 @@ def run(args) -> None:
     print(f"Wrote 1.0.0 WAV ranked report: {report_path}")
 
 
-def print_rankings(ranked: List[Dict], outputs_by_name: Dict[str, Dict]) -> None:
+def print_rankings(ranked: list[dict[str, Any]], outputs_by_name: dict[str, dict[str, Any]]) -> None:
     print("\nRanked transition recommendations, best to worst:")
     for item in ranked:
         out = outputs_by_name.get(item["name"], {})
