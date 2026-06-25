@@ -2,6 +2,14 @@
 
 All notable changes to FlowMix will be documented in this file.
 
+## Unreleased
+
+### Added
+
+- Mixed WAV and MP3 input for setlist and two-track mixing when sample rate and channel count match.
+- MP3 output via `-o mix.mp3` (320 kbps). WAV remains the default when no suffix is given.
+- MP3 cue-sheet analysis in `flowmix_cues.py` using the same windowed decode path as mix rendering.
+
 ## 1.0.0 - Initial public release
 
 Initial public release of FlowMix.

@@ -75,6 +75,52 @@ def test_resolve_wav_export_subtype_falls_back_when_only_mp3():
     assert resolve_wav_export_subtype([{"lossless": False, "subtype": "MP3"}]) == "PCM_16"
 
 
+def test_all_wav_setlist_rejects_subtype_mismatch(tmp_path):
+    a = write_stereo_wav(tmp_path / "a.wav", sr=48000, subtype="PCM_16", duration=2.0)
+    b = write_stereo_wav(tmp_path / "b.wav", sr=48000, subtype="PCM_24", duration=2.0)
+    tracks = [TrackSpec(path=str(a), title="A"), TrackSpec(path=str(b), title="B")]
+    with pytest.raises(ValueError, match="audio formats must match"):
+        validate_setlist_formats(tracks)
+
+
+def test_validate_audio_input_rejects_fake_mp3(tmp_path):
+    bad = tmp_path / "fake.mp3"
+    bad.write_bytes(b"not-an-mp3")
+    with pytest.raises(ValueError, match="could not be read as a valid audio file"):
+        validate_audio_input(str(bad), "Track A")
+
+
+def test_two_track_cli_writes_mp3_output(tmp_path):
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    a = write_stereo_wav(tmp_path / "a.wav", duration=8.0, freq=220.0, amp=0.08)
+    b = write_stereo_wav(tmp_path / "b.wav", duration=8.0, freq=330.0, amp=0.08)
+    out = tmp_path / "mix.mp3"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "flowmix_two_tracks.py",
+            str(a),
+            str(b),
+            "-o",
+            str(out),
+            "--mode",
+            "quick_cut",
+            "--vocal-method",
+            "heuristic",
+        ],
+        cwd=str(Path(__file__).resolve().parents[1]),
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr
+    rendered = tmp_path / "mix_quick_cut.mp3"
+    assert rendered.exists()
+    assert rendered.stat().st_size > 0
+
+
 def test_analyze_audio_reads_mp3_window(tmp_path):
     mp3 = write_stereo_mp3(tmp_path / "track.mp3", duration=6.0)
     analysis = analyze_audio(

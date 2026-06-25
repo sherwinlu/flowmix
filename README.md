@@ -610,6 +610,8 @@ WAV export uses the first lossless WAV subtype found in the inputs (otherwise PC
 
 WAV masters are still recommended for final release quality; MP3 sources may add encoder delay or re-encoding artifacts at transitions.
 
+`flowmix_cues.py` accepts the same `.wav` / `.mp3` inputs for video cue-sheet generation.
+
 ## Suggested workflow
 
 1. Build and audition with `--vocal-method heuristic`.

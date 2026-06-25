@@ -194,7 +194,7 @@ def audio_info(path: Path) -> Dict[str, object]:
     }
 
 
-def _compatibility_fields(a_info: Dict[str, object], b_info: Dict[str, object]) -> Tuple[str, ...]:
+def compatibility_fields(a_info: Dict[str, object], b_info: Dict[str, object]) -> Tuple[str, ...]:
     fields: List[str] = ["samplerate", "channels"]
     if a_info.get("lossless") and b_info.get("lossless"):
         fields.append("subtype")
@@ -205,7 +205,7 @@ def validate_audio_pair_compatibility(track_a: Path, track_b: Path) -> Tuple[Dic
     """Require A/B format parity so pydub does not silently resample/reconcile masters."""
     a_info = audio_info(track_a)
     b_info = audio_info(track_b)
-    fields = _compatibility_fields(a_info, b_info)
+    fields = compatibility_fields(a_info, b_info)
     mismatches = [(f, a_info[f], b_info[f]) for f in fields if a_info[f] != b_info[f]]
     if mismatches:
         details = "\n".join(f"  - {field}: Track A={a_val}, Track B={b_val}" for field, a_val, b_val in mismatches)
@@ -287,6 +287,21 @@ def read_audio_window(path: str, start_sec: float, duration_sec: float) -> Tuple
         duration=max(0.0, duration_sec),
     )
     return _audio_segment_to_stereo_float32(seg)
+
+
+def load_mono_analysis_audio(path: str | Path) -> Tuple[np.ndarray, int, float]:
+    """Load a full track as mono float32 for librosa analysis (WAV or MP3)."""
+    p = Path(path)
+    meta = audio_info(p)
+    duration_sec = float(meta["duration_sec"])  # pyright: ignore[reportArgumentType]
+    y_stereo, sr_native = read_audio_window(str(p), 0.0, duration_sec)
+    y_mono = (
+        np.mean(y_stereo, axis=1).astype(np.float32)
+        if y_stereo.size
+        else np.zeros(0, dtype=np.float32)
+    )
+    return y_mono, int(sr_native), duration_sec
+
 
 def validate_loaded_segment_parity(seg_a: AudioSegment, seg_b: AudioSegment) -> None:
     """Secondary guard after pydub load; catches decoded sample-rate/channel mismatches.

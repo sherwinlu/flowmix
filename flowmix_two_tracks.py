@@ -207,11 +207,16 @@ def print_rankings(ranked: list[dict[str, Any]], outputs_by_name: dict[str, dict
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="FlowMix 1.0.0 WAV: WAV-only Demucs vocal-safe + beat-aligned two-track mixing with ranked recommendations"
+        description="FlowMix 1.0.0: two-track mixing with ranked transition recommendations"
     )
-    p.add_argument("track_a", help="Outgoing Track A WAV file")
-    p.add_argument("track_b", help="Incoming Track B WAV file")
-    p.add_argument("-o", "--output", default="flowmix_1_0_0.wav", help="Output WAV base path or file path. Candidate name is appended. Must end in .wav or no suffix.")
+    p.add_argument("track_a", help="Outgoing Track A audio file (.wav or .mp3)")
+    p.add_argument("track_b", help="Incoming Track B audio file (.wav or .mp3)")
+    p.add_argument(
+        "-o",
+        "--output",
+        default="flowmix_1_0_0.wav",
+        help="Output base path (.wav or .mp3; MP3 exports at 320 kbps). Candidate name is appended.",
+    )
     p.add_argument("--mode", choices=["all", "vocal_safe", "beat_aligned", "quick_cut", "smooth", "profile", "vocal_ducked", "long_blend"], default="all", help="Which candidate(s) to render")
     p.add_argument("--profile", default="edm", help="Built-in scoring profile to use when --mode profile is selected")
     p.add_argument("--scoring-config", default=None, help="Path to a TOML scoring profile; overrides --profile")

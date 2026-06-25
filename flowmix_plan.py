@@ -13,7 +13,7 @@ from flowmix_audio import (
     MAX_OVERLAP_SEC,
     AudioAnalysis,
     TransitionCandidate,
-    _compatibility_fields,
+    compatibility_fields,
     analyze_audio,
     audio_info,
     load_audio_segment,
@@ -235,7 +235,7 @@ def validate_setlist_formats(tracks: Sequence[TrackSpec]) -> tuple[List[Dict[str
         if first_info is None:
             first_info = info
         else:
-            fields = _compatibility_fields(first_info, info)
+            fields = compatibility_fields(first_info, info)
             mismatches = [(f, first_info[f], info[f]) for f in fields if first_info[f] != info[f]]
             if mismatches:
                 details = "\n".join(f"  - {field}: first={a_val}, track {idx}={b_val}" for field, a_val, b_val in mismatches)

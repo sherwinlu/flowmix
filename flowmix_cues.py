@@ -32,7 +32,9 @@ Helpful optional columns:
 Example tracks.csv:
     path,title,bpm,key,visual_mood
     audio/01_Move_Anyway.wav,Move Anyway,110,E major / 12B,pre-dawn warm-up ignition
-    audio/02_Between_the_Beats.wav,Between the Beats,126,E major / 12B,sunrise piano-house tunnel
+    audio/02_Between_the_Beats.mp3,Between the Beats,126,E major / 12B,sunrise piano-house tunnel
+
+Supported audio inputs: `.wav`, `.wave`, and `.mp3` (same as FlowMix mix rendering).
 
 Timeline CSV optional columns. The script tries several common names:
     title
@@ -60,13 +62,14 @@ import numpy as np
 
 try:
     import librosa
-    import soundfile as sf
 except ImportError as exc:
     raise SystemExit(
         "Missing dependency: librosa\n\n"
         "Install with:\n"
         "  python -m pip install librosa soundfile numpy\n"
     ) from exc
+
+from flowmix_audio import load_mono_analysis_audio, lossy_input_note, validate_audio_input
 
 
 logger = logging.getLogger(__name__)
@@ -392,14 +395,9 @@ def find_breakdown_candidate(
 
 
 def analyze_track(audio_file: Path, bpm_hint: Optional[float]) -> Tuple[float, Optional[float], Dict[str, Optional[float]], str, str]:
-    # Read directly via soundfile and resample with librosa, rather than librosa.load().
-    # librosa.load() unconditionally calls audioread.available_backends() before it ever
-    # tries soundfile, which imports the stdlib aifc/sunau modules. Those were removed in
-    # Python 3.13 (PEP 594) and the released audioread package has not been patched for it,
-    # so librosa.load() raises ModuleNotFoundError on 3.13+ even for plain WAV input that
-    # soundfile can read directly. FlowMix is WAV-only, so we never need the audioread path.
-    y_native, sr_native = sf.read(str(audio_file), dtype="float32", always_2d=True)
-    y_native = np.mean(y_native, axis=1) if y_native.size else np.zeros(0, dtype=np.float32)
+    # Avoid librosa.load(): it unconditionally touches audioread (broken on Python 3.13+).
+    # Read WAV via soundfile and MP3 via pydub/ffmpeg through flowmix_audio instead.
+    y_native, sr_native, _duration_probe = load_mono_analysis_audio(audio_file)
     sr = 22050
     y = librosa.resample(y_native, orig_sr=sr_native, target_sr=sr) if sr_native != sr else y_native
     duration_sec = float(librosa.get_duration(y=y, sr=sr))
@@ -622,7 +620,7 @@ def main() -> None:
     parser.add_argument(
         "manifest",
         type=Path,
-        help="Track manifest CSV. Minimum columns: path,title. Optional: bpm,key,visual_mood.",
+        help="Track manifest CSV. Minimum columns: path,title. Paths may be .wav or .mp3.",
     )
     parser.add_argument(
         "--timeline",
@@ -665,6 +663,11 @@ def main() -> None:
                 print(f"  SKIP: {exc}")
                 continue
             raise
+
+        validate_audio_input(str(audio_file), track.title)
+        note = lossy_input_note(audio_file)
+        if note:
+            print(f"  {note}")
 
         trow = timeline.get(normalize_title(track.title), TimelineRow(title=track.title))
 

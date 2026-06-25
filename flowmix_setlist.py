@@ -268,7 +268,7 @@ def build_continuous_mix(args) -> None:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="FlowMix 1.0.0 setlist builder")
     p.add_argument("setlist", help="JSON manifest or text file with one audio path per line")
-    p.add_argument("-o", "--output", default="flowmix_setlist_1_0_0.wav", help="Output continuous mix (.wav or .mp3)")
+    p.add_argument("-o", "--output", default="flowmix_setlist_1_0_0.wav", help="Output continuous mix (.wav or .mp3; MP3 exports at 320 kbps)")
     p.add_argument("--transition-mode", default="recommended", choices=["recommended", "vocal_safe", "beat_aligned", "quick_cut", "smooth", "profile", "vocal_ducked", "long_blend"], help="Which transition style to select at each junction")
     p.add_argument("--make-snippets", action="store_true", help="Export transition audition snippets from the final continuous mix")
     p.add_argument("--profile", default="edm", help="Built-in scoring profile for --transition-mode profile: edm, vocal_trance, lounge, jazz, heart, cinematic")
