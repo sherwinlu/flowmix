@@ -13,7 +13,9 @@ import re
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, cast
+
+from pydub import AudioSegment
 
 from flowmix_audio import format_timestamp
 from flowmix_plan import TrackSpec, plan_setlist_mix
@@ -41,7 +43,7 @@ class TransitionChoice:
     mix_transition_start_timestamp: str
     next_track_source_zero_in_mix_sec: float
     next_track_source_zero_in_mix_timestamp: str
-    ranked_candidates: List[Dict]
+    ranked_candidates: list[dict[str, object]]
     notes: List[str]
 
 
@@ -54,13 +56,13 @@ def sanitize_filename(text: str, max_len: int = 50) -> str:
     return (text[:max_len] or "track").strip("._-") or "track"
 
 
-def load_setlist(path: str) -> Tuple[List[TrackSpec], Dict]:
+def load_setlist(path: str) -> Tuple[List[TrackSpec], dict[str, object]]:
     """Load a JSON manifest or a simple newline-delimited text setlist."""
     p = Path(path).expanduser()
     if not p.exists():
         raise ValueError(f"Setlist file does not exist: {path}")
 
-    settings: Dict = {}
+    settings: dict[str, object] = {}
     tracks_raw = None
     if p.suffix.lower() == ".json":
         data = json.loads(p.read_text(encoding="utf-8"))
@@ -147,7 +149,7 @@ def build_continuous_mix(args) -> None:
     infos = mix_plan.wav_infos
     segments = mix_plan.segments
     scoring_profile = mix_plan.scoring_profile
-    source_subtype = infos[0]["subtype"]
+    source_subtype = cast(str | None, infos[0].get("subtype"))
     print(f"Setlist WAV format: {infos[0]['samplerate']} Hz, {infos[0]['channels']} ch, {source_subtype}")
     if scoring_profile is not None:
         print(f"Using scoring profile: {scoring_profile.name} — {scoring_profile.description}")
@@ -222,7 +224,7 @@ def build_continuous_mix(args) -> None:
             end_ms = sec_to_ms(min(len(final) / 1000.0, start_sec + 24.0))
             snip_name = f"transition_{idx:02d}_{sanitize_filename(label)}.wav"
             snip_path = snippet_dir / snip_name
-            export_wav_matching_subtype(final[start_ms:end_ms], snip_path, source_subtype)
+            export_wav_matching_subtype(cast(AudioSegment, final[start_ms:end_ms]), snip_path, source_subtype)
             snippet_outputs.append(str(snip_path))
 
     report_path = base.with_suffix(".flowmix_1_0_0_setlist_report.json")

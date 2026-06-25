@@ -607,7 +607,7 @@ def vocal_segments_demucs(audio_path: str, start_sec: float, duration_sec: float
     Fallback path: demucs.separate CLI + cached vocals.wav when demucs.api is absent.
     """
     try:
-        from demucs.api import Separator  # type: ignore
+        from demucs.api import Separator  # pyright: ignore[reportMissingImports]
     except ModuleNotFoundError as exc:
         if exc.name not in {"demucs.api", "demucs"}:
             raise
@@ -616,7 +616,7 @@ def vocal_segments_demucs(audio_path: str, start_sec: float, duration_sec: float
 
     import torchaudio
 
-    info = torchaudio.info(audio_path)
+    info = torchaudio.info(audio_path)  # pyright: ignore[reportAttributeAccessIssue]
     sr_native = int(info.sample_rate)
     frame_offset = int(start_sec * sr_native)
     requested_frames = int(duration_sec * sr_native)
