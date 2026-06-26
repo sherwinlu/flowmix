@@ -121,3 +121,56 @@ def test_build_continuous_mix_applies_manual_override_and_writes_report(tmp_path
     assert report["track_source_zero_in_mix_sec"] == [0.0, 1.25]
     assert len(report["snippet_files"]) == 1
     assert snippet_dir.exists()
+
+
+def test_build_continuous_mix_applies_handoff_override_and_writes_report(tmp_path, monkeypatch):
+    a = tmp_path / "a.wav"
+    b = tmp_path / "b.wav"
+    write_wav(a, freq=440)
+    write_wav(b, freq=660)
+    manifest = tmp_path / "setlist.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "tracks": [
+                    {"path": "a.wav", "title": "Golden & Free"},
+                    {"path": "b.wav", "title": "Half of Everything"},
+                ],
+                "settings": {
+                    "transition_overrides": [
+                        {
+                            "index": 1,
+                            "mode": "handoff",
+                            "a_fade_start_sec": 1.5,
+                            "a_cut_sec": 2.5,
+                            "b_cue_sec": 0.25,
+                            "takeover_overlap_sec": 0.25,
+                            "b_entry_gain_db": -1.0,
+                            "b_fade_in_sec": 0.75,
+                        }
+                    ]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    out = tmp_path / "mix.wav"
+
+    monkeypatch.setattr(flowmix_plan, "analyze_audio", lambda path, role, **_: fake_analysis(path, role))
+    monkeypatch.setattr(flowmix_plan, "choose_candidates", lambda *_args, **_kwargs: [base_candidate()])
+
+    flowmix_setlist.build_continuous_mix(args_for(manifest, out))
+
+    report_path = tmp_path / "mix.flowmix_1_0_0_setlist_report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    transition = report["transitions"][0]
+
+    assert transition["selected_candidate"] == "handoff"
+    assert transition["source_a_fade_start_sec"] == 1.5
+    assert transition["source_a_cut_sec"] == 2.5
+    assert transition["source_b_cue_sec"] == 0.25
+    assert transition["takeover_overlap_sec"] == 0.25
+    assert transition["b_fade_in_sec"] == 0.75
+    assert transition["b_entry_gain_db"] == -1.0
+    assert report["track_source_zero_in_mix_sec"] == [0.0, 2.0]
+    assert "handoff transition: fades Track A down before Track B takeover" in transition["notes"]

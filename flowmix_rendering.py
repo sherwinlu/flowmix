@@ -213,15 +213,20 @@ def build_transition_audio(seg_a: AudioSegment, seg_b: AudioSegment, cand: Trans
     a_fade_start_ms = sec_to_ms(cand.a_fade_start_sec)
     a_cut_ms = sec_to_ms(cand.a_cut_sec)
     b_cue_ms = sec_to_ms(cand.b_cue_sec)
-    overlap_ms = sec_to_ms(cand.overlap_sec)
+    overlap_sec = cand.takeover_overlap_sec if cand.takeover_overlap_sec is not None else cand.overlap_sec
+    overlap_ms = sec_to_ms(overlap_sec)
+    b_fade_in_ms = sec_to_ms(cand.b_fade_in_sec if cand.b_fade_in_sec is not None else overlap_sec)
 
     prefix = cast(AudioSegment, seg_a[:a_fade_start_ms])
     a_slice = cast(AudioSegment, seg_a[a_fade_start_ms:a_cut_ms])
-    raw_a_tail = cast(AudioSegment, a_slice.fade_out(overlap_ms))
+    a_fade_out_ms = max(1, len(a_slice)) if cand.name == "handoff" else overlap_ms
+    raw_a_tail = cast(AudioSegment, a_slice.fade_out(a_fade_out_ms))
     b_after_cue = cast(AudioSegment, seg_b[b_cue_ms:])
     raw_b_after_cue = cast(AudioSegment, b_after_cue.apply_gain(cand.b_gain_db))
-    b_head_slice = cast(AudioSegment, raw_b_after_cue[:overlap_ms])
-    raw_b_head = cast(AudioSegment, b_head_slice.fade_in(overlap_ms))
+    b_start_offset_ms = max(0, a_cut_ms - overlap_ms - a_fade_start_ms) if cand.name == "handoff" else 0
+    b_head_len_ms = max(overlap_ms, b_fade_in_ms)
+    b_head_slice = cast(AudioSegment, raw_b_after_cue[:b_head_len_ms])
+    raw_b_head = cast(AudioSegment, b_head_slice.fade_in(b_fade_in_ms))
 
     if cand.soft_duck_db < -0.01:
         if cand.soft_duck_target == "a":
@@ -234,10 +239,18 @@ def build_transition_audio(seg_a: AudioSegment, seg_b: AudioSegment, cand: Trans
 
     a_tail = raw_a_tail.apply_gain(transition_safety_pad_db)
     b_head = raw_b_head.apply_gain(transition_safety_pad_db)
-    mixed = a_tail.overlay(b_head)
+    mixed_base = a_tail
+    needed_mixed_len_ms = b_start_offset_ms + len(b_head)
+    if needed_mixed_len_ms > len(mixed_base):
+        pad = AudioSegment.silent(
+            duration=needed_mixed_len_ms - len(mixed_base),
+            frame_rate=mixed_base.frame_rate,
+        ).set_channels(mixed_base.channels).set_sample_width(mixed_base.sample_width)
+        mixed_base += pad
+    mixed = mixed_base.overlay(b_head, position=b_start_offset_ms)
 
-    recovery_ms = min(2000, max(0, len(raw_b_after_cue) - overlap_ms))
-    b_remaining = cast(AudioSegment, raw_b_after_cue[overlap_ms:])
+    recovery_ms = min(2000, max(0, len(raw_b_after_cue) - b_head_len_ms))
+    b_remaining = cast(AudioSegment, raw_b_after_cue[b_head_len_ms:])
     if transition_safety_pad_db < -0.01 and recovery_ms > 0:
         b_recovery = apply_gain_ramp(cast(AudioSegment, b_remaining[:recovery_ms]), transition_safety_pad_db, 0.0)
         b_continuation = b_recovery + cast(AudioSegment, b_remaining[recovery_ms:])

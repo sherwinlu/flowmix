@@ -154,6 +154,10 @@ def coerce_float_override(item: dict[str, object], key: str, fallback: float) ->
         raise ValueError(f"Invalid manual transition override value for {key}: {value!r}") from exc
 
 
+def _override_mode(item: dict[str, object]) -> str:
+    return str(item.get("mode") or item.get("candidate") or item.get("transition_mode") or "manual")
+
+
 def apply_manual_transition_override(
     base: TransitionCandidate,
     item: dict[str, object],
@@ -217,6 +221,94 @@ def apply_manual_transition_override(
         soft_duck_db=coerce_float_override(item, "soft_duck_db", base.soft_duck_db),
         soft_duck_target=str(item.get("soft_duck_target", base.soft_duck_target)),
     )
+
+
+def apply_handoff_transition_override(
+    base: TransitionCandidate,
+    item: dict[str, object],
+    transition_index: int,
+    track_a: AudioAnalysis,
+    track_b: AudioAnalysis,
+) -> TransitionCandidate:
+    """Create a semantic handoff candidate from exact manifest parameters."""
+    a_fade_start = coerce_float_override(item, "a_fade_start_sec", base.a_fade_start_sec)
+    a_cut = coerce_float_override(item, "a_cut_sec", base.a_cut_sec)
+    b_cue = coerce_float_override(item, "b_cue_sec", base.b_cue_sec)
+    takeover_overlap = coerce_float_override(item, "takeover_overlap_sec", base.overlap_sec)
+    b_entry_gain = coerce_float_override(item, "b_entry_gain_db", base.b_gain_db)
+    b_fade_in = coerce_float_override(item, "b_fade_in_sec", max(takeover_overlap, base.overlap_sec))
+
+    if a_cut <= a_fade_start:
+        raise ValueError(
+            f"Transition #{transition_index} handoff override requires a_cut_sec > a_fade_start_sec. "
+            f"Got {a_cut} <= {a_fade_start}."
+        )
+    if b_cue < 0:
+        raise ValueError(f"Transition #{transition_index} handoff override b_cue_sec must be >= 0. Got {b_cue}.")
+    if not 0.05 <= takeover_overlap <= 1.0:
+        raise ValueError(
+            f"Transition #{transition_index} handoff override takeover_overlap_sec must be between 0.05 and 1.0. "
+            f"Got {takeover_overlap}."
+        )
+    if not 0.1 <= b_fade_in <= 4.0:
+        raise ValueError(
+            f"Transition #{transition_index} handoff override b_fade_in_sec must be between 0.1 and 4.0. "
+            f"Got {b_fade_in}."
+        )
+    if b_fade_in < takeover_overlap:
+        raise ValueError(
+            f"Transition #{transition_index} handoff override requires b_fade_in_sec >= takeover_overlap_sec. "
+            f"Got {b_fade_in} < {takeover_overlap}."
+        )
+    if not -6.0 <= b_entry_gain <= 3.0:
+        raise ValueError(
+            f"Transition #{transition_index} handoff override b_entry_gain_db must be between -6.0 and 3.0. "
+            f"Got {b_entry_gain}."
+        )
+
+    # Use the short takeover window for the comparable technical score. The
+    # renderer keeps the longer outgoing fade and incoming fade-in shape.
+    rescored = score_candidate(track_a, track_b, a_cut, b_cue, takeover_overlap, "candidate")
+    trim_a_tail_sec = max(0.0, track_a.duration_sec - a_cut)
+    notes = list(rescored.notes) + [
+        "handoff transition: fades Track A down before Track B takeover",
+        "uses short takeover overlap to avoid mud",
+        f"applies {b_entry_gain:+.1f} dB to Track B entry",
+        f"handoff a_fade_start_sec={a_fade_start:.3f}",
+        f"handoff a_cut_sec={a_cut:.3f}",
+        f"handoff b_cue_sec={b_cue:.3f}",
+        f"handoff takeover_overlap_sec={takeover_overlap:.3f}",
+        f"handoff b_fade_in_sec={b_fade_in:.3f}",
+    ]
+
+    return TransitionCandidate(
+        name="handoff",
+        score=rescored.score,
+        a_fade_start_sec=a_fade_start,
+        a_cut_sec=a_cut,
+        b_cue_sec=b_cue,
+        overlap_sec=takeover_overlap,
+        b_gain_db=b_entry_gain,
+        trim_a_tail_sec=trim_a_tail_sec,
+        vocal_collision_score=rescored.vocal_collision_score,
+        beat_alignment_score=rescored.beat_alignment_score,
+        energy_score=rescored.energy_score,
+        placement_score=rescored.placement_score,
+        loudness_score=rescored.loudness_score,
+        perceptual_loudness_score=rescored.perceptual_loudness_score,
+        compatibility_score=rescored.compatibility_score,
+        notes=notes,
+        takeover_overlap_sec=takeover_overlap,
+        b_fade_in_sec=b_fade_in,
+        b_entry_gain_db=b_entry_gain,
+    )
+
+
+def candidate_b_start_offset_sec(cand: TransitionCandidate) -> float:
+    if cand.name == "handoff":
+        overlap = cand.takeover_overlap_sec if cand.takeover_overlap_sec is not None else cand.overlap_sec
+        return cand.a_cut_sec - overlap
+    return cand.a_fade_start_sec
 
 
 def validate_setlist_formats(tracks: Sequence[TrackSpec]) -> tuple[List[Dict[str, object]], List[AudioSegment]]:
@@ -308,16 +400,13 @@ def plan_setlist_mix(
         override_item = transition_override(settings, i + 1, a_spec.title, b_spec.title)
         override_mode = None
         if override_item:
-            override_mode = str(
-                override_item.get("mode")
-                or override_item.get("candidate")
-                or override_item.get("transition_mode")
-                or "manual"
-            )
+            override_mode = _override_mode(override_item)
         selection_mode = override_mode or transition_mode
-        base_selection_mode = "recommended" if override_mode == "manual" else selection_mode
+        base_selection_mode = "recommended" if override_mode in ("manual", "handoff") else selection_mode
         selected = select_candidate(candidates, base_selection_mode, i + 1)
-        if override_item and (
+        if override_item and override_mode == "handoff":
+            selected = apply_handoff_transition_override(selected, override_item, i + 1, a_analysis, b_analysis)
+        elif override_item and (
             override_mode == "manual"
             or any(k in override_item for k in ("a_fade_start_sec", "a_cut_sec", "b_cue_sec", "overlap_sec", "b_gain_db"))
         ):
@@ -333,7 +422,8 @@ def plan_setlist_mix(
                 "This usually means a prior transition mapping failed."
             )
 
-        next_zero = mix_transition_start_sec - selected.b_cue_sec
+        b_start_in_mix_sec = current_a_zero + candidate_b_start_offset_sec(selected)
+        next_zero = b_start_in_mix_sec - selected.b_cue_sec
         if next_zero < -1e-6:
             raise ValueError(
                 f"Transition #{i+1} maps Track B source zero before the start of the assembled mix: "
@@ -357,7 +447,7 @@ def plan_setlist_mix(
                 next_track_source_zero_in_mix_sec=round(next_zero, 3),
             )
         )
-        mix_len_ms = mix_transition_start_ms + max(0, len(segments[i + 1]) - int(selected.b_cue_sec * 1000))
+        mix_len_ms = int(round(next_zero * 1000)) + len(segments[i + 1])
 
     return SetlistMixPlan(
         tracks=list(tracks),
