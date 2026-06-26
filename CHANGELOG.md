@@ -4,6 +4,8 @@ All notable changes to FlowMix will be documented in this file.
 
 ## Unreleased
 
+## 1.0.1 - 2026-06-26
+
 ### Added
 
 - Mixed WAV and MP3 **format** support for setlist and two-track mixing when sample rate and channel count match.

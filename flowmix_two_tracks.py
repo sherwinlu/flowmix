@@ -80,7 +80,7 @@ from flowmix_reports import (
     serialize_analysis,
 )
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 APP_NAME = f"FlowMix {APP_VERSION}"
 
 
@@ -207,7 +207,7 @@ def print_rankings(ranked: list[dict[str, Any]], outputs_by_name: dict[str, dict
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="FlowMix 1.0.0: two-track mixing with ranked transition recommendations"
+        description="FlowMix 1.0.1: two-track mixing with ranked transition recommendations"
     )
     p.add_argument("track_a", help="Outgoing Track A audio file (.wav or .mp3)")
     p.add_argument("track_b", help="Incoming Track B audio file (.wav or .mp3)")
