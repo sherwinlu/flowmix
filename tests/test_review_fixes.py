@@ -7,7 +7,7 @@ import flowmix_audio
 import flowmix_plan
 import flowmix_setlist
 from flowmix_audio import AudioAnalysis, TransitionCandidate, analyze_audio, analyze_vocals
-from flowmix_plan import TrackSpec, apply_manual_transition_override, plan_setlist_mix
+from flowmix_plan import TrackSpec, apply_handoff_transition_override, apply_manual_transition_override, plan_setlist_mix
 from flowmix_reports import build_setlist_report, build_two_track_report, serialize_analysis
 from flowmix_scoring import profile_search_parameters
 from flowmix_profiles import ScoringProfile
@@ -189,6 +189,46 @@ def test_manual_override_recomputes_component_scores():
     assert overridden.vocal_collision_score != base.vocal_collision_score
     assert overridden.trim_a_tail_sec == pytest.approx(0.0, abs=0.01)
     assert "component scores recomputed" in " ".join(overridden.notes)
+
+
+def test_handoff_override_validates_fade_in_covers_takeover_overlap():
+    a = analysis("a", duration=30, beats=[24.0, 26.0, 28.0, 30.0])
+    b = analysis("b", duration=30, beats=[0.0, 2.0, 4.0])
+    base = TransitionCandidate(
+        name="vocal_safe",
+        score=0.5,
+        a_fade_start_sec=10.0,
+        a_cut_sec=14.0,
+        b_cue_sec=0.0,
+        overlap_sec=4.0,
+        b_gain_db=0.0,
+        trim_a_tail_sec=16.0,
+        vocal_collision_score=0.9,
+        beat_alignment_score=0.1,
+        energy_score=0.1,
+        placement_score=0.1,
+        loudness_score=0.1,
+        perceptual_loudness_score=0.1,
+        compatibility_score=0.1,
+        notes=[],
+    )
+
+    with pytest.raises(ValueError, match="b_fade_in_sec >= takeover_overlap_sec"):
+        apply_handoff_transition_override(
+            base,
+            {
+                "mode": "handoff",
+                "a_fade_start_sec": 20.0,
+                "a_cut_sec": 24.0,
+                "b_cue_sec": 1.5,
+                "takeover_overlap_sec": 0.5,
+                "b_entry_gain_db": -1.0,
+                "b_fade_in_sec": 0.25,
+            },
+            1,
+            a,
+            b,
+        )
 
 
 def test_analyze_vocals_auto_falls_back_to_heuristic(monkeypatch):

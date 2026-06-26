@@ -38,6 +38,9 @@ class TransitionChoice:
     source_b_cue_sec: float
     overlap_sec: float
     b_gain_db: float
+    takeover_overlap_sec: Optional[float]
+    b_fade_in_sec: Optional[float]
+    b_entry_gain_db: Optional[float]
     trim_a_tail_sec: float
     mix_transition_start_sec: float
     mix_transition_start_timestamp: str
@@ -181,7 +184,8 @@ def build_continuous_mix(args) -> None:
 
         print(
             f"Selected {selected.name}: score={selected.score:.3f}; new song starts in mix at "
-            f"{format_timestamp(mix_transition_start_sec)} ({mix_transition_start_sec:.2f}s), "
+            f"{format_timestamp(junction.next_track_source_zero_in_mix_sec + selected.b_cue_sec)} "
+            f"({junction.next_track_source_zero_in_mix_sec + selected.b_cue_sec:.2f}s), "
             f"using Track B cue {format_timestamp(selected.b_cue_sec)} ({selected.b_cue_sec:.2f}s); "
             f"overlap {selected.overlap_sec:.1f}s, B gain {selected.b_gain_db:+.1f} dB"
         )
@@ -198,6 +202,9 @@ def build_continuous_mix(args) -> None:
                 source_b_cue_sec=selected.b_cue_sec,
                 overlap_sec=selected.overlap_sec,
                 b_gain_db=selected.b_gain_db,
+                takeover_overlap_sec=selected.takeover_overlap_sec,
+                b_fade_in_sec=selected.b_fade_in_sec,
+                b_entry_gain_db=selected.b_entry_gain_db,
                 trim_a_tail_sec=selected.trim_a_tail_sec,
                 mix_transition_start_sec=junction.mix_transition_start_sec,
                 mix_transition_start_timestamp=format_timestamp(mix_transition_start_sec),

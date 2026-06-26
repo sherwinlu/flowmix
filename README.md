@@ -424,6 +424,8 @@ Supported override modes are the same candidate names used by setlist transition
 recommended, vocal_safe, beat_aligned, quick_cut, smooth, profile, vocal_ducked, long_blend
 ```
 
+Setlist overrides also support the semantic manual-only mode `handoff`, described below.
+
 The optional `from` and `to` fields can identify a junction when `index` is omitted; otherwise they are labels for humans and reports. FlowMix prefers `index` when both are supplied.
 
 ### Manual parameter override
@@ -466,6 +468,46 @@ Manual override fields:
 | `b_gain_db`        | Gain applied to Track B during the transition          |
 
 Manual overrides are especially helpful when a long crossfade causes a perceptual “switch forward, then switch back” effect. In that case, forcing a shorter overlap and a deeper Track B cue can sound cleaner than the technically highest-scoring candidate.
+
+### Handoff override
+
+Use a `handoff` override when Track A should fade down first and Track B should take over only near the end of that fade. This avoids muddy long blends while still avoiding hard silence or a click.
+
+```json
+{
+  "settings": {
+    "transition_overrides": [
+      {
+        "index": 9,
+        "from": "Golden & Free",
+        "to": "Half of Everything",
+        "mode": "handoff",
+        "a_fade_start_sec": 162.8,
+        "a_cut_sec": 166.06,
+        "b_cue_sec": 1.5,
+        "takeover_overlap_sec": 0.25,
+        "b_entry_gain_db": -1.0,
+        "b_fade_in_sec": 0.75
+      }
+    ]
+  }
+}
+```
+
+Handoff fields:
+
+| Field                  | Meaning                                                       |
+| ---------------------- | ------------------------------------------------------------- |
+| `index`                | 1-based transition number in the setlist                      |
+| `mode`                 | Must be `handoff`                                             |
+| `a_fade_start_sec`     | Source time in Track A where the outgoing fade starts         |
+| `a_cut_sec`            | Source time in Track A where Track A is fully cut             |
+| `b_cue_sec`            | Source time in Track B where the incoming track begins        |
+| `takeover_overlap_sec` | How long Track B starts before Track A is fully gone          |
+| `b_entry_gain_db`      | Gain applied to Track B entry                                 |
+| `b_fade_in_sec`        | Track B fade-in duration; may continue after Track A is gone  |
+
+Validation keeps handoffs short and intentional: `takeover_overlap_sec` must be 0.05-1.0 seconds, `b_fade_in_sec` must be 0.1-4.0 seconds and at least the takeover overlap, and `b_entry_gain_db` must be between -6.0 and +3.0 dB.
 
 ### Example setlist command with overrides
 

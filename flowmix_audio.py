@@ -400,6 +400,9 @@ class TransitionCandidate:
     notes: List[str]
     soft_duck_db: float = 0.0
     soft_duck_target: str = "none"
+    takeover_overlap_sec: Optional[float] = None
+    b_fade_in_sec: Optional[float] = None
+    b_entry_gain_db: Optional[float] = None
 
 
 # -----------------------------
