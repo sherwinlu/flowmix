@@ -8,9 +8,9 @@ import math
 import subprocess
 import sys
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import soundfile as sf
@@ -403,7 +403,55 @@ class TransitionCandidate:
     takeover_overlap_sec: Optional[float] = None
     b_fade_in_sec: Optional[float] = None
     b_entry_gain_db: Optional[float] = None
-    pause_sec: float = 0.0
+
+
+@dataclass
+class NaturalTransition:
+    """Unscored track boundary that preserves both source tracks."""
+
+    boundary_sec: float
+    pause_sec: float
+    name: str = "natural"
+    notes: List[str] = field(default_factory=list)
+
+    @property
+    def a_fade_start_sec(self) -> float:
+        return self.boundary_sec
+
+    @property
+    def a_cut_sec(self) -> float:
+        return self.boundary_sec
+
+    @property
+    def b_cue_sec(self) -> float:
+        return 0.0
+
+    @property
+    def overlap_sec(self) -> float:
+        return 0.0
+
+    @property
+    def b_gain_db(self) -> float:
+        return 0.0
+
+    @property
+    def trim_a_tail_sec(self) -> float:
+        return 0.0
+
+    @property
+    def takeover_overlap_sec(self) -> None:
+        return None
+
+    @property
+    def b_fade_in_sec(self) -> None:
+        return None
+
+    @property
+    def b_entry_gain_db(self) -> None:
+        return None
+
+
+SetlistTransition = Union[TransitionCandidate, NaturalTransition]
 
 
 # -----------------------------

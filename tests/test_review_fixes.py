@@ -51,8 +51,8 @@ def test_serialize_analysis_is_json_serializable():
 
 
 def test_natural_transition_rejects_negative_or_non_finite_pause():
-    for pause in (-0.1, float("nan"), float("inf")):
-        with pytest.raises(ValueError, match="pause_sec must be a finite value >= 0"):
+    for pause in (-0.1, 300.001, float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="pause_sec must be between 0 and 300 seconds"):
             build_natural_transition(30.0, pause, 1)
 
 

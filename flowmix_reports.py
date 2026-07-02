@@ -4,7 +4,13 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any, Dict, List, Mapping, Sequence
 
-from flowmix_audio import AudioAnalysis, TransitionCandidate, format_timestamp
+from flowmix_audio import (
+    AudioAnalysis,
+    NaturalTransition,
+    SetlistTransition,
+    TransitionCandidate,
+    format_timestamp,
+)
 
 TWO_TRACK_REPORT_SCHEMA_VERSION = "1.0.0"
 SETLIST_REPORT_SCHEMA_VERSION = "1.0.0"
@@ -192,9 +198,9 @@ def serialize_analysis(a: AudioAnalysis) -> dict[str, Any]:
     return d
 
 
-def candidate_verdict(c: TransitionCandidate) -> str:
+def candidate_verdict(c: SetlistTransition) -> str:
     """Human-readable recommendation note for ranked reports."""
-    if c.name == "natural":
+    if isinstance(c, NaturalTransition):
         return f"Natural track boundary with {c.pause_sec:.1f}s of silence."
     cautions = []
     if c.vocal_collision_score > 0.25:
@@ -230,10 +236,9 @@ def ranked_candidate_summary(candidates: List[TransitionCandidate]) -> list[dict
                 "overlap_sec": c.overlap_sec,
                 "b_gain_db": c.b_gain_db,
                 "trim_a_tail_sec": c.trim_a_tail_sec,
-                "new_song_starts_in_mix_sec": c.a_fade_start_sec + c.pause_sec,
-                "new_song_starts_in_mix_timestamp": format_timestamp(c.a_fade_start_sec + c.pause_sec),
+                "new_song_starts_in_mix_sec": c.a_fade_start_sec,
+                "new_song_starts_in_mix_timestamp": format_timestamp(c.a_fade_start_sec),
                 "track_b_source_cue_timestamp": format_timestamp(c.b_cue_sec),
-                "pause_sec": c.pause_sec,
             },
             "component_scores": {
                 "vocal_collision_risk": c.vocal_collision_score,

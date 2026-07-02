@@ -13,6 +13,8 @@ from flowmix_profiles import ScoringProfile, load_scoring_profile
 from flowmix_audio import (
     MAX_OVERLAP_SEC,
     AudioAnalysis,
+    NaturalTransition,
+    SetlistTransition,
     TransitionCandidate,
     compatibility_fields,
     analyze_audio,
@@ -25,6 +27,9 @@ from flowmix_audio import (
 )
 from flowmix_scoring import choose_candidates, profile_search_parameters, score_candidate
 from flowmix_reports import ranked_candidate_summary
+
+
+MAX_NATURAL_PAUSE_SEC = 300.0
 
 
 @dataclass
@@ -62,11 +67,11 @@ class JunctionPlan:
     index: int
     from_title: str
     to_title: str
-    track_a_analysis: AudioAnalysis
-    track_b_analysis: AudioAnalysis
+    track_a_analysis: Optional[AudioAnalysis]
+    track_b_analysis: Optional[AudioAnalysis]
     candidates: List[TransitionCandidate]
     ranked: list[dict[str, object]]
-    selected: TransitionCandidate
+    selected: SetlistTransition
     override_mode: Optional[str] = None
     mix_transition_start_sec: float = 0.0
     next_track_source_zero_in_mix_sec: float = 0.0
@@ -163,36 +168,23 @@ def build_natural_transition(
     track_a_duration_sec: float,
     pause_sec: float,
     transition_index: int,
-) -> TransitionCandidate:
+) -> NaturalTransition:
     """Create a no-fade, no-overlap transition after Track A's natural end."""
-    if not math.isfinite(pause_sec) or pause_sec < 0:
+    if not math.isfinite(pause_sec) or not 0 <= pause_sec <= MAX_NATURAL_PAUSE_SEC:
         raise ValueError(
-            f"Transition #{transition_index} natural pause_sec must be a finite value >= 0. Got {pause_sec}."
+            f"Transition #{transition_index} natural pause_sec must be between 0 and "
+            f"{MAX_NATURAL_PAUSE_SEC:g} seconds. Got {pause_sec}."
         )
     end_sec = round(track_a_duration_sec, 3)
     pause_sec = round(pause_sec, 3)
-    return TransitionCandidate(
-        name="natural",
-        score=1.0,
-        a_fade_start_sec=end_sec,
-        a_cut_sec=end_sec,
-        b_cue_sec=0.0,
-        overlap_sec=0.0,
-        b_gain_db=0.0,
-        trim_a_tail_sec=0.0,
-        vocal_collision_score=0.0,
-        beat_alignment_score=1.0,
-        energy_score=1.0,
-        placement_score=1.0,
-        loudness_score=1.0,
-        perceptual_loudness_score=1.0,
-        compatibility_score=1.0,
+    return NaturalTransition(
+        boundary_sec=end_sec,
+        pause_sec=pause_sec,
         notes=[
             "natural transition: preserves Track A through its end",
             f"inserts {pause_sec:.3f}s of silence before Track B",
             "starts Track B from source time zero without a fade or gain change",
         ],
-        pause_sec=pause_sec,
     )
 
 
@@ -342,7 +334,9 @@ def apply_handoff_transition_override(
     )
 
 
-def candidate_b_start_offset_sec(cand: TransitionCandidate) -> float:
+def candidate_b_start_offset_sec(cand: SetlistTransition) -> float:
+    if isinstance(cand, NaturalTransition):
+        return cand.boundary_sec
     if cand.name == "handoff":
         overlap = cand.takeover_overlap_sec if cand.takeover_overlap_sec is not None else cand.overlap_sec
         return cand.a_cut_sec - overlap
@@ -415,24 +409,6 @@ def plan_setlist_mix(
 
     for i in range(len(tracks) - 1):
         a_spec, b_spec = tracks[i], tracks[i + 1]
-        a_analysis = analyze_audio(
-            a_spec.path,
-            role="a",
-            window_sec=effective_search_a_sec,
-            manual_bpm=a_spec.bpm,
-            manual_key=a_spec.key,
-            vocal_method=vocal_method,
-            prefer_mps=prefer_mps,
-        )
-        b_analysis = analyze_audio(
-            b_spec.path,
-            role="b",
-            window_sec=effective_search_b_sec,
-            manual_bpm=b_spec.bpm,
-            manual_key=b_spec.key,
-            vocal_method=vocal_method,
-            prefer_mps=prefer_mps,
-        )
         override_item = transition_override(settings, i + 1, a_spec.title, b_spec.title)
         override_mode = None
         if override_item:
@@ -443,8 +419,29 @@ def plan_setlist_mix(
             if override_item:
                 pause_sec = coerce_float_override(override_item, "pause_sec", natural_pause_sec)
             selected = build_natural_transition(len(segments[i]) / 1000.0, pause_sec, i + 1)
-            candidates = [selected]
+            a_analysis = None
+            b_analysis = None
+            candidates: List[TransitionCandidate] = []
+            ranked: list[dict[str, object]] = []
         else:
+            a_analysis = analyze_audio(
+                a_spec.path,
+                role="a",
+                window_sec=effective_search_a_sec,
+                manual_bpm=a_spec.bpm,
+                manual_key=a_spec.key,
+                vocal_method=vocal_method,
+                prefer_mps=prefer_mps,
+            )
+            b_analysis = analyze_audio(
+                b_spec.path,
+                role="b",
+                window_sec=effective_search_b_sec,
+                manual_bpm=b_spec.bpm,
+                manual_key=b_spec.key,
+                vocal_method=vocal_method,
+                prefer_mps=prefer_mps,
+            )
             candidates = choose_candidates(
                 a_analysis, b_analysis, max_trim_a_sec, b_cue_max_sec, scoring_profile=scoring_profile
             )
@@ -457,8 +454,8 @@ def plan_setlist_mix(
                 or any(k in override_item for k in ("a_fade_start_sec", "a_cut_sec", "b_cue_sec", "overlap_sec", "b_gain_db"))
             ):
                 selected = apply_manual_transition_override(selected, override_item, i + 1, a_analysis, b_analysis)
+            ranked = ranked_candidate_summary(candidates)
 
-        ranked = ranked_candidate_summary(candidates)
         current_a_zero = source_zero_in_mix_sec[i]
         mix_transition_start_sec = current_a_zero + selected.a_fade_start_sec
         mix_transition_start_ms = int(round(mix_transition_start_sec * 1000))
@@ -468,7 +465,8 @@ def plan_setlist_mix(
                 "This usually means a prior transition mapping failed."
             )
 
-        b_start_in_mix_sec = current_a_zero + candidate_b_start_offset_sec(selected) + selected.pause_sec
+        pause_sec = selected.pause_sec if isinstance(selected, NaturalTransition) else 0.0
+        b_start_in_mix_sec = current_a_zero + candidate_b_start_offset_sec(selected) + pause_sec
         next_zero = b_start_in_mix_sec - selected.b_cue_sec
         if next_zero < -1e-6:
             raise ValueError(

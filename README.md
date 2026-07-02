@@ -453,7 +453,7 @@ Or use it for one junction in `settings.transition_overrides`:
 }
 ```
 
-`pause_sec` must be zero or greater and defaults to `--natural-pause-sec` (1.0 second by default). Silence already present at either end of the source files is preserved in addition to this pause.
+`pause_sec` must be between 0 and 300 seconds and defaults to `--natural-pause-sec` (1.0 second by default). Silence already present at either end of the source files is preserved in addition to this pause.
 
 ### Manual parameter override
 
