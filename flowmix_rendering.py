@@ -210,6 +210,11 @@ def export_audio(
 
 def build_transition_audio(seg_a: AudioSegment, seg_b: AudioSegment, cand: TransitionCandidate) -> TransitionAudio:
     """Pure transition render shared by two-track export and setlist tail stitching."""
+    if cand.name == "natural":
+        silence = AudioSegment.silent(duration=sec_to_ms(cand.pause_sec), frame_rate=seg_b.frame_rate)
+        silence = silence.set_channels(seg_b.channels).set_sample_width(seg_b.sample_width)
+        return TransitionAudio(prefix=seg_a, body=silence + seg_b)
+
     a_fade_start_ms = sec_to_ms(cand.a_fade_start_sec)
     a_cut_ms = sec_to_ms(cand.a_cut_sec)
     b_cue_ms = sec_to_ms(cand.b_cue_sec)

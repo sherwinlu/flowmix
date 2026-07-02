@@ -403,6 +403,7 @@ class TransitionCandidate:
     takeover_overlap_sec: Optional[float] = None
     b_fade_in_sec: Optional[float] = None
     b_entry_gain_db: Optional[float] = None
+    pause_sec: float = 0.0
 
 
 # -----------------------------

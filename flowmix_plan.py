@@ -1,6 +1,7 @@
 """Transition planning: separate analysis/scoring from render/export."""
 from __future__ import annotations
 
+import math
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -156,6 +157,43 @@ def coerce_float_override(item: dict[str, object], key: str, fallback: float) ->
 
 def _override_mode(item: dict[str, object]) -> str:
     return str(item.get("mode") or item.get("candidate") or item.get("transition_mode") or "manual")
+
+
+def build_natural_transition(
+    track_a_duration_sec: float,
+    pause_sec: float,
+    transition_index: int,
+) -> TransitionCandidate:
+    """Create a no-fade, no-overlap transition after Track A's natural end."""
+    if not math.isfinite(pause_sec) or pause_sec < 0:
+        raise ValueError(
+            f"Transition #{transition_index} natural pause_sec must be a finite value >= 0. Got {pause_sec}."
+        )
+    end_sec = round(track_a_duration_sec, 3)
+    pause_sec = round(pause_sec, 3)
+    return TransitionCandidate(
+        name="natural",
+        score=1.0,
+        a_fade_start_sec=end_sec,
+        a_cut_sec=end_sec,
+        b_cue_sec=0.0,
+        overlap_sec=0.0,
+        b_gain_db=0.0,
+        trim_a_tail_sec=0.0,
+        vocal_collision_score=0.0,
+        beat_alignment_score=1.0,
+        energy_score=1.0,
+        placement_score=1.0,
+        loudness_score=1.0,
+        perceptual_loudness_score=1.0,
+        compatibility_score=1.0,
+        notes=[
+            "natural transition: preserves Track A through its end",
+            f"inserts {pause_sec:.3f}s of silence before Track B",
+            "starts Track B from source time zero without a fade or gain change",
+        ],
+        pause_sec=pause_sec,
+    )
 
 
 def apply_manual_transition_override(
@@ -358,6 +396,7 @@ def plan_setlist_mix(
     search_b_sec: float = 35.0,
     max_trim_a_sec: float = 8.0,
     b_cue_max_sec: float = 10.0,
+    natural_pause_sec: float = 1.0,
     vocal_method: str = "heuristic",
     prefer_mps: bool = True,
     assembled_mix_len_ms: Optional[int] = None,
@@ -394,23 +433,30 @@ def plan_setlist_mix(
             vocal_method=vocal_method,
             prefer_mps=prefer_mps,
         )
-        candidates = choose_candidates(
-            a_analysis, b_analysis, max_trim_a_sec, b_cue_max_sec, scoring_profile=scoring_profile
-        )
         override_item = transition_override(settings, i + 1, a_spec.title, b_spec.title)
         override_mode = None
         if override_item:
             override_mode = _override_mode(override_item)
         selection_mode = override_mode or transition_mode
-        base_selection_mode = "recommended" if override_mode in ("manual", "handoff") else selection_mode
-        selected = select_candidate(candidates, base_selection_mode, i + 1)
-        if override_item and override_mode == "handoff":
-            selected = apply_handoff_transition_override(selected, override_item, i + 1, a_analysis, b_analysis)
-        elif override_item and (
-            override_mode == "manual"
-            or any(k in override_item for k in ("a_fade_start_sec", "a_cut_sec", "b_cue_sec", "overlap_sec", "b_gain_db"))
-        ):
-            selected = apply_manual_transition_override(selected, override_item, i + 1, a_analysis, b_analysis)
+        if selection_mode == "natural":
+            pause_sec = natural_pause_sec
+            if override_item:
+                pause_sec = coerce_float_override(override_item, "pause_sec", natural_pause_sec)
+            selected = build_natural_transition(len(segments[i]) / 1000.0, pause_sec, i + 1)
+            candidates = [selected]
+        else:
+            candidates = choose_candidates(
+                a_analysis, b_analysis, max_trim_a_sec, b_cue_max_sec, scoring_profile=scoring_profile
+            )
+            base_selection_mode = "recommended" if override_mode in ("manual", "handoff") else selection_mode
+            selected = select_candidate(candidates, base_selection_mode, i + 1)
+            if override_item and override_mode == "handoff":
+                selected = apply_handoff_transition_override(selected, override_item, i + 1, a_analysis, b_analysis)
+            elif override_item and (
+                override_mode == "manual"
+                or any(k in override_item for k in ("a_fade_start_sec", "a_cut_sec", "b_cue_sec", "overlap_sec", "b_gain_db"))
+            ):
+                selected = apply_manual_transition_override(selected, override_item, i + 1, a_analysis, b_analysis)
 
         ranked = ranked_candidate_summary(candidates)
         current_a_zero = source_zero_in_mix_sec[i]
@@ -422,7 +468,7 @@ def plan_setlist_mix(
                 "This usually means a prior transition mapping failed."
             )
 
-        b_start_in_mix_sec = current_a_zero + candidate_b_start_offset_sec(selected)
+        b_start_in_mix_sec = current_a_zero + candidate_b_start_offset_sec(selected) + selected.pause_sec
         next_zero = b_start_in_mix_sec - selected.b_cue_sec
         if next_zero < -1e-6:
             raise ValueError(

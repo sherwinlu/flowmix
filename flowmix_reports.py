@@ -194,6 +194,8 @@ def serialize_analysis(a: AudioAnalysis) -> dict[str, Any]:
 
 def candidate_verdict(c: TransitionCandidate) -> str:
     """Human-readable recommendation note for ranked reports."""
+    if c.name == "natural":
+        return f"Natural track boundary with {c.pause_sec:.1f}s of silence."
     cautions = []
     if c.vocal_collision_score > 0.25:
         cautions.append("possible vocal overlap")
@@ -228,9 +230,10 @@ def ranked_candidate_summary(candidates: List[TransitionCandidate]) -> list[dict
                 "overlap_sec": c.overlap_sec,
                 "b_gain_db": c.b_gain_db,
                 "trim_a_tail_sec": c.trim_a_tail_sec,
-                "new_song_starts_in_mix_sec": c.a_fade_start_sec,
-                "new_song_starts_in_mix_timestamp": format_timestamp(c.a_fade_start_sec),
+                "new_song_starts_in_mix_sec": c.a_fade_start_sec + c.pause_sec,
+                "new_song_starts_in_mix_timestamp": format_timestamp(c.a_fade_start_sec + c.pause_sec),
                 "track_b_source_cue_timestamp": format_timestamp(c.b_cue_sec),
+                "pause_sec": c.pause_sec,
             },
             "component_scores": {
                 "vocal_collision_risk": c.vocal_collision_score,

@@ -68,6 +68,7 @@ def args_for(setlist, output):
         search_b_sec=1.0,
         max_trim_a_sec=2.0,
         b_cue_max_sec=2.0,
+        natural_pause_sec=1.0,
         apply_manifest_settings=False,
     )
 
@@ -174,3 +175,53 @@ def test_build_continuous_mix_applies_handoff_override_and_writes_report(tmp_pat
     assert transition["b_entry_gain_db"] == -1.0
     assert report["track_source_zero_in_mix_sec"] == [0.0, 2.0]
     assert "handoff transition: fades Track A down before Track B takeover" in transition["notes"]
+
+
+def test_build_continuous_mix_natural_override_preserves_tracks_and_inserts_pause(tmp_path, monkeypatch):
+    a = tmp_path / "a.wav"
+    b = tmp_path / "b.wav"
+    write_wav(a, freq=440)
+    write_wav(b, freq=660)
+    manifest = tmp_path / "setlist.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "tracks": [
+                    {"path": "a.wav", "title": "Song A"},
+                    {"path": "b.wav", "title": "Song B"},
+                ],
+                "settings": {
+                    "transition_overrides": [
+                        {"index": 1, "mode": "natural", "pause_sec": 1.25}
+                    ]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    out = tmp_path / "mix.wav"
+    args = args_for(manifest, out)
+    args.make_snippets = False
+
+    monkeypatch.setattr(flowmix_plan, "analyze_audio", lambda path, role, **_: fake_analysis(path, role))
+    monkeypatch.setattr(
+        flowmix_plan,
+        "choose_candidates",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("natural mode must not score crossfades")),
+    )
+
+    flowmix_setlist.build_continuous_mix(args)
+
+    audio, sample_rate = sf.read(out)
+    report = json.loads((tmp_path / "mix.flowmix_1_0_0_setlist_report.json").read_text(encoding="utf-8"))
+    transition = report["transitions"][0]
+
+    assert len(audio) == int(sample_rate * 9.25)
+    assert np.max(np.abs(audio[int(sample_rate * 4.0):int(sample_rate * 5.25)])) == 0.0
+    assert transition["selected_candidate"] == "natural"
+    assert transition["source_a_cut_sec"] == 4.0
+    assert transition["source_b_cue_sec"] == 0.0
+    assert transition["overlap_sec"] == 0.0
+    assert transition["pause_sec"] == 1.25
+    assert transition["trim_a_tail_sec"] == 0.0
+    assert report["track_source_zero_in_mix_sec"] == [0.0, 5.25]

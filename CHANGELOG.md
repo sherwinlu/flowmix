@@ -4,6 +4,10 @@ All notable changes to FlowMix will be documented in this file.
 
 ## Unreleased
 
+### Added
+
+- `natural` setlist transitions that preserve the outgoing track through its end, insert a configurable silent pause, and start the incoming track from source time zero without a fade or overlap.
+
 ## 1.0.1 - 2026-06-26
 
 ### Added
