@@ -68,6 +68,7 @@ def args_for(setlist, output):
         search_b_sec=1.0,
         max_trim_a_sec=2.0,
         b_cue_max_sec=2.0,
+        natural_pause_sec=1.0,
         apply_manifest_settings=False,
     )
 
@@ -174,3 +175,127 @@ def test_build_continuous_mix_applies_handoff_override_and_writes_report(tmp_pat
     assert transition["b_entry_gain_db"] == -1.0
     assert report["track_source_zero_in_mix_sec"] == [0.0, 2.0]
     assert "handoff transition: fades Track A down before Track B takeover" in transition["notes"]
+
+
+def test_build_continuous_mix_natural_override_preserves_tracks_and_inserts_pause(tmp_path, monkeypatch):
+    a = tmp_path / "a.wav"
+    b = tmp_path / "b.wav"
+    write_wav(a, freq=440)
+    write_wav(b, freq=660)
+    manifest = tmp_path / "setlist.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "tracks": [
+                    {"path": "a.wav", "title": "Song A"},
+                    {"path": "b.wav", "title": "Song B"},
+                ],
+                "settings": {
+                    "transition_overrides": [
+                        {"index": 1, "mode": "natural", "pause_sec": 1.25}
+                    ]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    out = tmp_path / "mix.wav"
+    args = args_for(manifest, out)
+    args.make_snippets = False
+
+    monkeypatch.setattr(
+        flowmix_plan,
+        "analyze_audio",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("natural mode must not analyze audio")),
+    )
+    monkeypatch.setattr(
+        flowmix_plan,
+        "choose_candidates",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("natural mode must not score crossfades")),
+    )
+
+    flowmix_setlist.build_continuous_mix(args)
+
+    source_a, _ = sf.read(a)
+    source_b, _ = sf.read(b)
+    audio, sample_rate = sf.read(out)
+    report = json.loads((tmp_path / "mix.flowmix_1_0_0_setlist_report.json").read_text(encoding="utf-8"))
+    transition = report["transitions"][0]
+
+    assert len(audio) == int(sample_rate * 9.25)
+    assert np.max(np.abs(audio[int(sample_rate * 4.0):int(sample_rate * 5.25)])) == 0.0
+    np.testing.assert_allclose(audio[:len(source_a)], source_a, atol=1 / 32768)
+    np.testing.assert_allclose(audio[-len(source_b):], source_b, atol=1 / 32768)
+    assert transition["selected_candidate"] == "natural"
+    assert transition["score"] is None
+    assert transition["ranked_candidates"] == []
+    assert transition["source_a_cut_sec"] == 4.0
+    assert transition["source_b_cue_sec"] == 0.0
+    assert transition["overlap_sec"] == 0.0
+    assert transition["pause_sec"] == 1.25
+    assert transition["trim_a_tail_sec"] == 0.0
+    assert report["track_source_zero_in_mix_sec"] == [0.0, 5.25]
+
+
+def test_global_natural_mode_uses_cli_pause_without_analysis(tmp_path, monkeypatch):
+    a = tmp_path / "a.wav"
+    b = tmp_path / "b.wav"
+    write_wav(a, freq=440)
+    write_wav(b, freq=660)
+    manifest = tmp_path / "setlist.json"
+    manifest.write_text(json.dumps({"tracks": ["a.wav", "b.wav"]}), encoding="utf-8")
+    out = tmp_path / "global.wav"
+    args = args_for(manifest, out)
+    args.transition_mode = "natural"
+    args.natural_pause_sec = 0.5
+    args.make_snippets = False
+
+    monkeypatch.setattr(
+        flowmix_plan,
+        "analyze_audio",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("natural mode must not analyze audio")),
+    )
+    monkeypatch.setattr(
+        flowmix_plan,
+        "choose_candidates",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("natural mode must not score crossfades")),
+    )
+
+    flowmix_setlist.build_continuous_mix(args)
+
+    report = json.loads((tmp_path / "global.flowmix_1_0_0_setlist_report.json").read_text(encoding="utf-8"))
+    assert sf.info(out).duration == 8.5
+    assert report["transitions"][0]["pause_sec"] == 0.5
+    assert report["track_source_zero_in_mix_sec"] == [0.0, 4.5]
+
+
+def test_mixed_mode_plan_analyzes_only_scored_junctions(tmp_path, monkeypatch):
+    paths = []
+    for index, freq in enumerate((440, 550, 660), start=1):
+        path = tmp_path / f"track-{index}.wav"
+        write_wav(path, freq=freq)
+        paths.append(path)
+
+    calls = []
+
+    def record_analysis(path, role, **_kwargs):
+        calls.append((path, role))
+        return fake_analysis(path, role)
+
+    monkeypatch.setattr(flowmix_plan, "analyze_audio", record_analysis)
+    monkeypatch.setattr(flowmix_plan, "choose_candidates", lambda *_args, **_kwargs: [base_candidate()])
+
+    plan = flowmix_plan.plan_setlist_mix(
+        [flowmix_plan.TrackSpec(path=str(path), title=f"Track {i}") for i, path in enumerate(paths, start=1)],
+        manifest_settings={"transition_overrides": [{"index": 1, "mode": "natural", "pause_sec": 0.5}]},
+        search_a_sec=1.0,
+        search_b_sec=1.0,
+        prefer_mps=False,
+    )
+
+    assert calls == [(str(paths[1]), "a"), (str(paths[2]), "b")]
+    assert plan.junctions[0].track_a_analysis is None
+    assert plan.junctions[0].track_b_analysis is None
+    assert plan.junctions[0].ranked == []
+    assert plan.junctions[1].track_a_analysis is not None
+    assert plan.source_zero_in_mix_sec == [0.0, 4.5, 6.5]

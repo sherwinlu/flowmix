@@ -4,7 +4,13 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any, Dict, List, Mapping, Sequence
 
-from flowmix_audio import AudioAnalysis, TransitionCandidate, format_timestamp
+from flowmix_audio import (
+    AudioAnalysis,
+    NaturalTransition,
+    SetlistTransition,
+    TransitionCandidate,
+    format_timestamp,
+)
 
 TWO_TRACK_REPORT_SCHEMA_VERSION = "1.0.0"
 SETLIST_REPORT_SCHEMA_VERSION = "1.0.0"
@@ -192,8 +198,10 @@ def serialize_analysis(a: AudioAnalysis) -> dict[str, Any]:
     return d
 
 
-def candidate_verdict(c: TransitionCandidate) -> str:
+def candidate_verdict(c: SetlistTransition) -> str:
     """Human-readable recommendation note for ranked reports."""
+    if isinstance(c, NaturalTransition):
+        return f"Natural track boundary with {c.pause_sec:.1f}s of silence."
     cautions = []
     if c.vocal_collision_score > 0.25:
         cautions.append("possible vocal overlap")

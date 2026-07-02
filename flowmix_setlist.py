@@ -17,8 +17,14 @@ from typing import Dict, List, Optional, Tuple, cast
 
 from pydub import AudioSegment
 
-from flowmix_audio import format_timestamp, output_format_suffix, resolve_wav_export_subtype, validate_audio_output
-from flowmix_plan import TrackSpec, plan_setlist_mix
+from flowmix_audio import (
+    NaturalTransition,
+    format_timestamp,
+    output_format_suffix,
+    resolve_wav_export_subtype,
+    validate_audio_output,
+)
+from flowmix_plan import MAX_NATURAL_PAUSE_SEC, TrackSpec, plan_setlist_mix
 from flowmix_rendering import export_audio, render_transition_tail, sec_to_ms
 from flowmix_reports import build_setlist_report, candidate_verdict
 
@@ -32,7 +38,7 @@ class TransitionChoice:
     from_title: str
     to_title: str
     selected_candidate: str
-    score: float
+    score: Optional[float]
     source_a_fade_start_sec: float
     source_a_cut_sec: float
     source_b_cue_sec: float
@@ -41,6 +47,7 @@ class TransitionChoice:
     takeover_overlap_sec: Optional[float]
     b_fade_in_sec: Optional[float]
     b_entry_gain_db: Optional[float]
+    pause_sec: float
     trim_a_tail_sec: float
     mix_transition_start_sec: float
     mix_transition_start_timestamp: str
@@ -144,6 +151,7 @@ def build_continuous_mix(args) -> None:
         search_b_sec=args.search_b_sec,
         max_trim_a_sec=args.max_trim_a_sec,
         b_cue_max_sec=args.b_cue_max_sec,
+        natural_pause_sec=getattr(args, "natural_pause_sec", 1.0),
         vocal_method=args.vocal_method,
         prefer_mps=not args.no_mps,
     )
@@ -182,13 +190,20 @@ def build_continuous_mix(args) -> None:
         tail = render_transition_tail(segments[i], segments[i + 1], selected)
         final = final[:mix_transition_start_ms] + tail
 
-        print(
-            f"Selected {selected.name}: score={selected.score:.3f}; new song starts in mix at "
-            f"{format_timestamp(junction.next_track_source_zero_in_mix_sec + selected.b_cue_sec)} "
-            f"({junction.next_track_source_zero_in_mix_sec + selected.b_cue_sec:.2f}s), "
-            f"using Track B cue {format_timestamp(selected.b_cue_sec)} ({selected.b_cue_sec:.2f}s); "
-            f"overlap {selected.overlap_sec:.1f}s, B gain {selected.b_gain_db:+.1f} dB"
-        )
+        if isinstance(selected, NaturalTransition):
+            print(
+                f"Selected natural: Track A ends at {format_timestamp(mix_transition_start_sec)}; "
+                f"pause {selected.pause_sec:.1f}s; Track B starts from 0:00 at "
+                f"{format_timestamp(junction.next_track_source_zero_in_mix_sec)}"
+            )
+        else:
+            print(
+                f"Selected {selected.name}: score={selected.score:.3f}; new song starts in mix at "
+                f"{format_timestamp(junction.next_track_source_zero_in_mix_sec + selected.b_cue_sec)} "
+                f"({junction.next_track_source_zero_in_mix_sec + selected.b_cue_sec:.2f}s), "
+                f"using Track B cue {format_timestamp(selected.b_cue_sec)} ({selected.b_cue_sec:.2f}s); "
+                f"overlap {selected.overlap_sec:.1f}s, B gain {selected.b_gain_db:+.1f} dB"
+            )
 
         transitions.append(
             TransitionChoice(
@@ -196,7 +211,7 @@ def build_continuous_mix(args) -> None:
                 from_title=junction.from_title,
                 to_title=junction.to_title,
                 selected_candidate=selected.name,
-                score=selected.score,
+                score=None if isinstance(selected, NaturalTransition) else selected.score,
                 source_a_fade_start_sec=selected.a_fade_start_sec,
                 source_a_cut_sec=selected.a_cut_sec,
                 source_b_cue_sec=selected.b_cue_sec,
@@ -205,6 +220,7 @@ def build_continuous_mix(args) -> None:
                 takeover_overlap_sec=selected.takeover_overlap_sec,
                 b_fade_in_sec=selected.b_fade_in_sec,
                 b_entry_gain_db=selected.b_entry_gain_db,
+                pause_sec=selected.pause_sec if isinstance(selected, NaturalTransition) else 0.0,
                 trim_a_tail_sec=selected.trim_a_tail_sec,
                 mix_transition_start_sec=junction.mix_transition_start_sec,
                 mix_transition_start_timestamp=format_timestamp(mix_transition_start_sec),
@@ -276,7 +292,13 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="FlowMix 1.0.1 setlist builder")
     p.add_argument("setlist", help="JSON manifest or text file with one audio path per line")
     p.add_argument("-o", "--output", default="flowmix_setlist_1_0_0.wav", help="Output continuous mix (.wav or .mp3; MP3 exports at 320 kbps)")
-    p.add_argument("--transition-mode", default="recommended", choices=["recommended", "vocal_safe", "beat_aligned", "quick_cut", "smooth", "profile", "vocal_ducked", "long_blend"], help="Which transition style to select at each junction")
+    p.add_argument("--transition-mode", default="recommended", choices=["recommended", "vocal_safe", "beat_aligned", "quick_cut", "smooth", "profile", "vocal_ducked", "long_blend", "natural"], help="Which transition style to select at each junction")
+    p.add_argument(
+        "--natural-pause-sec",
+        type=float,
+        default=1.0,
+        help=f"Silence between tracks in natural mode, from 0 to {MAX_NATURAL_PAUSE_SEC:g}s (default: 1.0)",
+    )
     p.add_argument("--make-snippets", action="store_true", help="Export transition audition snippets from the final continuous mix")
     p.add_argument("--profile", default="edm", help="Built-in scoring profile for --transition-mode profile: edm, vocal_trance, lounge, jazz, heart, cinematic")
     p.add_argument("--scoring-config", default=None, help="Path to a TOML scoring profile; overrides --profile")

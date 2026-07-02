@@ -357,7 +357,7 @@ python flowmix_setlist.py examples/setlist_example.json \
 Available setlist transition modes:
 
 ```text
-recommended, vocal_safe, beat_aligned, quick_cut, smooth, profile, vocal_ducked, long_blend
+recommended, vocal_safe, beat_aligned, quick_cut, smooth, profile, vocal_ducked, long_blend, natural
 ```
 
 `recommended` selects the best technical candidate. `smooth` is the built-in EDM-style smooth handoff from earlier development. `profile` uses the selected TOML profile.
@@ -424,9 +424,36 @@ Supported override modes are the same candidate names used by setlist transition
 recommended, vocal_safe, beat_aligned, quick_cut, smooth, profile, vocal_ducked, long_blend
 ```
 
-Setlist overrides also support the semantic manual-only mode `handoff`, described below.
+Setlist overrides also support the semantic `natural` and manual-only `handoff` modes described below.
 
 The optional `from` and `to` fields can identify a junction when `index` is omitted; otherwise they are labels for humans and reports. FlowMix prefers `index` when both are supplied.
+
+### Natural track boundary
+
+Use `natural` when the outgoing song should play through its final sample, followed by a normal silent gap, before the next song starts from source time zero. No fade, overlap, cue, or transition gain is applied. This behaves like consecutive tracks on a CD or in a streaming queue.
+
+Apply it to every junction from the command line:
+
+```bash
+python flowmix_setlist.py setlist.json \
+  -o natural-listening-mix.wav \
+  --transition-mode natural \
+  --natural-pause-sec 1.5
+```
+
+Or use it for one junction in `settings.transition_overrides`:
+
+```json
+{
+  "index": 3,
+  "from": "Song A",
+  "to": "Song B",
+  "mode": "natural",
+  "pause_sec": 1.5
+}
+```
+
+`pause_sec` must be between 0 and 300 seconds and defaults to `--natural-pause-sec` (1.0 second by default). Silence already present at either end of the source files is preserved in addition to this pause.
 
 ### Manual parameter override
 

@@ -9,7 +9,14 @@ from typing import Optional, Tuple, cast
 import numpy as np
 from pydub import AudioSegment
 
-from flowmix_audio import DEFAULT_MP3_BITRATE, SUPPORTED_MP3_SUFFIXES, TransitionCandidate, clamp
+from flowmix_audio import (
+    DEFAULT_MP3_BITRATE,
+    SUPPORTED_MP3_SUFFIXES,
+    NaturalTransition,
+    SetlistTransition,
+    TransitionCandidate,
+    clamp,
+)
 
 
 def sec_to_ms(sec: float) -> int:
@@ -208,8 +215,13 @@ def export_audio(
     export_wav_matching_subtype(seg, path, source_subtype)
 
 
-def build_transition_audio(seg_a: AudioSegment, seg_b: AudioSegment, cand: TransitionCandidate) -> TransitionAudio:
+def build_transition_audio(seg_a: AudioSegment, seg_b: AudioSegment, cand: SetlistTransition) -> TransitionAudio:
     """Pure transition render shared by two-track export and setlist tail stitching."""
+    if isinstance(cand, NaturalTransition):
+        silence = AudioSegment.silent(duration=sec_to_ms(cand.pause_sec), frame_rate=seg_b.frame_rate)
+        silence = silence.set_channels(seg_b.channels).set_sample_width(seg_b.sample_width)
+        return TransitionAudio(prefix=seg_a, body=silence + seg_b)
+
     a_fade_start_ms = sec_to_ms(cand.a_fade_start_sec)
     a_cut_ms = sec_to_ms(cand.a_cut_sec)
     b_cue_ms = sec_to_ms(cand.b_cue_sec)
@@ -267,7 +279,7 @@ def apply_final_peak_guard(seg: AudioSegment, target_dbfs: float = -1.0) -> Audi
     return seg
 
 
-def snippet_window_ms(cand: TransitionCandidate, total_len_ms: int) -> Tuple[int, int]:
+def snippet_window_ms(cand: SetlistTransition, total_len_ms: int) -> Tuple[int, int]:
     """Return audition snippet bounds around a transition."""
     a_fade_start_ms = sec_to_ms(cand.a_fade_start_sec)
     overlap_ms = sec_to_ms(cand.overlap_sec)
@@ -276,7 +288,7 @@ def snippet_window_ms(cand: TransitionCandidate, total_len_ms: int) -> Tuple[int
     return snip_start, snip_end
 
 
-def render_transition_tail(seg_a: AudioSegment, seg_b: AudioSegment, cand: TransitionCandidate) -> AudioSegment:
+def render_transition_tail(seg_a: AudioSegment, seg_b: AudioSegment, cand: SetlistTransition) -> AudioSegment:
     """Return only the transition body from Track A fade start onward."""
     return build_transition_audio(seg_a, seg_b, cand).body
 

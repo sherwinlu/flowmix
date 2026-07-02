@@ -7,7 +7,13 @@ import flowmix_audio
 import flowmix_plan
 import flowmix_setlist
 from flowmix_audio import AudioAnalysis, TransitionCandidate, analyze_audio, analyze_vocals
-from flowmix_plan import TrackSpec, apply_handoff_transition_override, apply_manual_transition_override, plan_setlist_mix
+from flowmix_plan import (
+    TrackSpec,
+    apply_handoff_transition_override,
+    apply_manual_transition_override,
+    build_natural_transition,
+    plan_setlist_mix,
+)
 from flowmix_reports import build_setlist_report, build_two_track_report, serialize_analysis
 from flowmix_scoring import profile_search_parameters
 from flowmix_profiles import ScoringProfile
@@ -42,6 +48,12 @@ def test_serialize_analysis_is_json_serializable():
     json.dumps(payload)
     assert "energy_curve" not in payload
     assert payload["energy_curve_points"] == 4
+
+
+def test_natural_transition_rejects_negative_or_non_finite_pause():
+    for pause in (-0.1, 300.001, float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="pause_sec must be between 0 and 300 seconds"):
+            build_natural_transition(30.0, pause, 1)
 
 
 def test_build_two_track_report_round_trips_through_json():
