@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""FlowMix 1.0.1 WAV Setlist Builder.
+"""FlowMix 1.0.2 WAV Setlist Builder.
 
 Builds a continuous WAV mix from an ordered setlist of full-mix WAV masters.
 Planning (analysis/scoring/selection) lives in flowmix_plan; this module handles
@@ -28,7 +28,7 @@ from flowmix_plan import MAX_NATURAL_PAUSE_SEC, TrackSpec, plan_setlist_mix
 from flowmix_rendering import export_audio, render_transition_tail, sec_to_ms
 from flowmix_reports import build_setlist_report, candidate_verdict
 
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.0.2"
 APP_NAME = f"FlowMix {APP_VERSION} Setlist Builder"
 
 
@@ -289,7 +289,7 @@ def build_continuous_mix(args) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="FlowMix 1.0.1 setlist builder")
+    p = argparse.ArgumentParser(description="FlowMix 1.0.2 setlist builder")
     p.add_argument("setlist", help="JSON manifest or text file with one audio path per line")
     p.add_argument("-o", "--output", default="flowmix_setlist_1_0_0.wav", help="Output continuous mix (.wav or .mp3; MP3 exports at 320 kbps)")
     p.add_argument("--transition-mode", default="recommended", choices=["recommended", "vocal_safe", "beat_aligned", "quick_cut", "smooth", "profile", "vocal_ducked", "long_blend", "natural"], help="Which transition style to select at each junction")
